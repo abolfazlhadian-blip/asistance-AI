@@ -51,15 +51,15 @@ HTML_TEMPLATE = """
             --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
         }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; font-family: 'Vazirmatn', 'Tahoma', sans-serif; transition: background-color 0.3s, color 0.3s, border-color 0.3s; }
-        body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-main); padding-bottom: 90px; line-height: 1.5; display: flex; flex-direction: column; min-height: 100vh; }
+        body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-main); padding-bottom: 110px; line-height: 1.5; }
         header { background: var(--card-bg); color: var(--text-main); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
         header h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--primary); }
         .header-actions { display: flex; gap: 10px; }
         .icon-btn { background: var(--input-bg); border: none; color: var(--text-main); width: 40px; height: 40px; border-radius: 12px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .icon-btn:active { transform: scale(0.95); }
         .container { padding: 15px; max-width: 600px; margin: 0 auto; width: 100%; }
-        .tab-content { display: none; flex: 1; }
-        .active-tab { display: flex; flex-direction: column; animation: fadeIn 0.4s; }
+        .tab-content { display: none; }
+        .active-tab { display: block; animation: fadeIn 0.4s; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .card { background: var(--card-bg); border-radius: 16px; padding: 20px; margin-bottom: 15px; box-shadow: var(--shadow); border: 1px solid transparent; }
         h3 { font-size: 16px; margin: 0 0 15px 0; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
@@ -71,10 +71,8 @@ HTML_TEMPLATE = """
         .stat-expense { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
         .stat-balance { background: rgba(99, 102, 241, 0.1); color: var(--primary); grid-column: span 2; }
         
-        /* Chat specific styles to fill height */
-        #chat-section.active-tab { height: calc(100vh - 160px); }
-        .chat-card { display: flex; flex-direction: column; flex: 1; margin-bottom: 0; }
-        .chat-box { background: var(--bg-color); border-radius: 16px; padding: 15px; margin-bottom: 15px; flex: 1; overflow-y: auto; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px; }
+        .chat-card { margin-bottom: 80px; }
+        .chat-box { background: var(--bg-color); border-radius: 16px; padding: 15px; margin-bottom: 15px; min-height: 250px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px; }
         .chat-message { padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.6; max-width: 85%; display: flex; align-items: flex-start; gap: 8px; }
         .ai-msg { background: var(--card-bg); color: var(--text-main); border-bottom-right-radius: 4px; align-self: flex-start; box-shadow: var(--shadow); }
         .user-msg { background: var(--primary); color: white; border-bottom-left-radius: 4px; align-self: flex-end; }
@@ -121,7 +119,6 @@ HTML_TEMPLATE = """
     </header>
     
     <div class="container">
-        <!-- Minimal Chat Section -->
         <div id="chat-section" class="tab-content active-tab">
             <div class="card chat-card">
                 <div class="chat-box" id="chat-display">
@@ -138,7 +135,6 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- Tasks Section -->
         <div id="tasks" class="tab-content">
             <div class="card">
                 <h3>➕ افزودن کار جدید</h3>
@@ -153,7 +149,6 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- Finance Section -->
         <div id="finance" class="tab-content">
             <div class="card">
                 <h3>📊 وضعیت مالی کلی</h3>
@@ -216,6 +211,8 @@ HTML_TEMPLATE = """
         let appData = { tasks: [], transactions: [] };
         let currentAudio = null;
         let uploadedImage = null;
+        let recognition = null; 
+        let isRecording = false;
         
         function loadTheme() { const theme = localStorage.getItem('theme') || 'light'; document.body.setAttribute('data-theme', theme); document.getElementById('theme-btn').innerText = theme === 'dark' ? '🌙' : '☀️'; }
         function toggleTheme() { const c = document.body.getAttribute('data-theme'); const n = c === 'dark' ? 'light' : 'dark'; document.body.setAttribute('data-theme', n); localStorage.setItem('theme', n); document.getElementById('theme-btn').innerText = n === 'dark' ? '🌙' : '☀️'; }
@@ -276,29 +273,70 @@ HTML_TEMPLATE = """
             btn.classList.add('active');
         }
 
-        let recognition = null; let isRecording = false;
+        // --- iOS Compatible Microphone Logic with Detailed Debug ---
         function setupMic() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (SR) {
-                recognition = new SR(); recognition.lang = 'fa-IR'; recognition.interimResults = true; recognition.continuous = false;
+                recognition = new SR(); 
+                recognition.lang = 'fa-IR'; 
+                recognition.interimResults = true; 
+                recognition.continuous = false;
                 recognition.onresult = (event) => { let t = ''; for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript; document.getElementById('user-input').value = t; };
-                recognition.onend = () => { isRecording = false; document.getElementById('mic-btn').classList.remove('recording'); document.getElementById('mic-btn').innerText = '🎤'; if(document.getElementById('user-input').value.trim().length > 0) sendToAI(); };
+                recognition.onend = () => { 
+                    isRecording = false; 
+                    document.getElementById('mic-btn').classList.remove('recording'); 
+                    document.getElementById('mic-btn').innerText = '🎤'; 
+                    if(document.getElementById('user-input').value.trim().length > 0) sendToAI(); 
+                };
                 recognition.onerror = (event) => {
                     let errMsg = 'خطا در میکروفون: ' + event.error;
-                    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                        errMsg = '🚫 دسترسی به میکروفون رد شد! لطفاً در تنظیمات آیفون (Settings > Safari > Microphone) اجازه دسترسی را بدهید.';
-                    }
                     addChatMessage(errMsg, 'system');
-                    isRecording = false; document.getElementById('mic-btn').classList.remove('recording'); document.getElementById('mic-btn').innerText = '🎤';
+                    isRecording = false; 
+                    document.getElementById('mic-btn').classList.remove('recording'); 
+                    document.getElementById('mic-btn').innerText = '🎤';
                 };
             } else { 
                 addChatMessage('مرورگر شما از میکروفون پشتیبانی نمی‌کند. از مرورگر Safari استفاده کنید.', 'system'); 
             }
         }
+        
         function toggleMic() {
-            if (!recognition) setupMic(); if (!recognition) return;
-            if (isRecording) recognition.stop();
-            else { document.getElementById('user-input').value = ''; recognition.start(); isRecording = true; document.getElementById('mic-btn').classList.add('recording'); document.getElementById('mic-btn').innerText = '⏹'; }
+            if (!recognition) setupMic(); 
+            if (!recognition) return;
+
+            if (isRecording) {
+                recognition.stop();
+            } else {
+                document.getElementById('user-input').value = '';
+                
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    navigator.mediaDevices.getUserMedia({ audio: true })
+                        .then(function(stream) {
+                            try {
+                                recognition.start();
+                                isRecording = true;
+                                document.getElementById('mic-btn').classList.add('recording');
+                                document.getElementById('mic-btn').innerText = '⏹';
+                                setTimeout(() => { stream.getTracks().forEach(track => track.stop()); }, 500);
+                            } catch(e) {
+                                addChatMessage('خطا در شروع ضبط: ' + e.message, 'system');
+                                stream.getTracks().forEach(track => track.stop());
+                            }
+                        })
+                        .catch(function(err) {
+                            addChatMessage('🚫 دسترسی میکروفون رد شد: ' + err.message + ' (نام خطا: ' + err.name + ')', 'system');
+                        });
+                } else {
+                    try {
+                        recognition.start();
+                        isRecording = true;
+                        document.getElementById('mic-btn').classList.add('recording');
+                        document.getElementById('mic-btn').innerText = '⏹';
+                    } catch(e) {
+                        addChatMessage('خطا در شروع ضبط: ' + e.message, 'system');
+                    }
+                }
+            }
         }
 
         async function sendToAI() {
