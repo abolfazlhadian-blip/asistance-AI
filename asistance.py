@@ -51,15 +51,15 @@ HTML_TEMPLATE = """
             --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
         }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; font-family: 'Vazirmatn', 'Tahoma', sans-serif; transition: background-color 0.3s, color 0.3s, border-color 0.3s; }
-        body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-main); padding-bottom: 90px; line-height: 1.5; }
+        body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-main); padding-bottom: 90px; line-height: 1.5; display: flex; flex-direction: column; min-height: 100vh; }
         header { background: var(--card-bg); color: var(--text-main); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
         header h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--primary); }
         .header-actions { display: flex; gap: 10px; }
         .icon-btn { background: var(--input-bg); border: none; color: var(--text-main); width: 40px; height: 40px; border-radius: 12px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .icon-btn:active { transform: scale(0.95); }
-        .container { padding: 15px; max-width: 600px; margin: 0 auto; }
-        .tab-content { display: none; }
-        .active-tab { display: block; animation: fadeIn 0.4s; }
+        .container { padding: 15px; max-width: 600px; margin: 0 auto; width: 100%; }
+        .tab-content { display: none; flex: 1; }
+        .active-tab { display: flex; flex-direction: column; animation: fadeIn 0.4s; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .card { background: var(--card-bg); border-radius: 16px; padding: 20px; margin-bottom: 15px; box-shadow: var(--shadow); border: 1px solid transparent; }
         h3 { font-size: 16px; margin: 0 0 15px 0; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
@@ -70,11 +70,16 @@ HTML_TEMPLATE = """
         .stat-income { background: rgba(16, 185, 129, 0.1); color: var(--success); }
         .stat-expense { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
         .stat-balance { background: rgba(99, 102, 241, 0.1); color: var(--primary); grid-column: span 2; }
-        .chat-box { background: var(--bg-color); border-radius: 16px; padding: 15px; margin-bottom: 15px; min-height: 200px; max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px; }
+        
+        /* Chat specific styles to fill height */
+        #chat-section.active-tab { height: calc(100vh - 160px); }
+        .chat-card { display: flex; flex-direction: column; flex: 1; margin-bottom: 0; }
+        .chat-box { background: var(--bg-color); border-radius: 16px; padding: 15px; margin-bottom: 15px; flex: 1; overflow-y: auto; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px; }
         .chat-message { padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.6; max-width: 85%; display: flex; align-items: flex-start; gap: 8px; }
         .ai-msg { background: var(--card-bg); color: var(--text-main); border-bottom-right-radius: 4px; align-self: flex-start; box-shadow: var(--shadow); }
         .user-msg { background: var(--primary); color: white; border-bottom-left-radius: 4px; align-self: flex-end; }
         .system-msg { background: transparent; color: var(--text-muted); font-size: 12px; text-align: center; align-self: center; padding: 5px 10px; border: 1px dashed var(--border-color); border-radius: 20px; }
+        
         input, select, textarea { width: 100%; padding: 14px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 12px; font-size: 15px; outline: none; font-family: inherit; background: var(--input-bg); color: var(--text-main); }
         input:focus, select:focus, textarea:focus { border-color: var(--primary); }
         textarea { resize: none; }
@@ -116,34 +121,24 @@ HTML_TEMPLATE = """
     </header>
     
     <div class="container">
+        <!-- Minimal Chat Section -->
         <div id="chat-section" class="tab-content active-tab">
-            <div class="card">
+            <div class="card chat-card">
                 <div class="chat-box" id="chat-display">
-                    <div class="chat-message ai-msg"><span>سلام! عکس فیش یا قبض رو بفرست تا برات ثبت کنم. یا دکمه میکروفون رو بزن و حرف بزن.</span></div>
+                    <div class="chat-message ai-msg"><span>سلام! عکس فیش رو بفرست یا دکمه میکروفون رو بزن و حرف بزن.</span></div>
                 </div>
-                <img id="image-preview" class="image-preview" alt="پیش‌نمایش عکس">
+                <img id="image-preview" class="image-preview" alt="پیش‌نمایش">
                 <div class="input-row">
                     <textarea id="user-input" rows="1" placeholder="صحبت کن یا تایپ کن..."></textarea>
                     <input type="file" accept="image/*" id="image-upload" hidden>
                     <button class="input-action-btn" onclick="document.getElementById('image-upload').click()">📎</button>
                     <button class="input-action-btn mic" id="mic-btn" onclick="toggleMic()">🎤</button>
                 </div>
-                <button class="btn" id="send-btn" onclick="sendToAI()">ارسال به هوش مصنوعی</button>
-            </div>
-            <div class="card">
-                <h3>📊 وضعیت مالی کلی</h3>
-                <div class="stats-grid">
-                    <div class="stat-box stat-income"><h4>درآمد کل</h4><span id="quick-income">۰</span></div>
-                    <div class="stat-box stat-expense"><h4>هزینه کل</h4><span id="quick-expense">۰</span></div>
-                    <div class="stat-box stat-balance"><h4>برآیند تمام حساب‌ها</h4><span id="quick-balance">۰</span></div>
-                </div>
-            </div>
-            <div class="card">
-                <h3>⏳ کارهای امروز</h3>
-                <div id="quick-tasks"></div>
+                <button class="btn" id="send-btn" onclick="sendToAI()">ارسال</button>
             </div>
         </div>
 
+        <!-- Tasks Section -->
         <div id="tasks" class="tab-content">
             <div class="card">
                 <h3>➕ افزودن کار جدید</h3>
@@ -158,7 +153,16 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- Finance Section -->
         <div id="finance" class="tab-content">
+            <div class="card">
+                <h3>📊 وضعیت مالی کلی</h3>
+                <div class="stats-grid">
+                    <div class="stat-box stat-income"><h4>درآمد کل</h4><span id="quick-income">۰</span></div>
+                    <div class="stat-box stat-expense"><h4>هزینه کل</h4><span id="quick-expense">۰</span></div>
+                    <div class="stat-box stat-balance"><h4>برآیند تمام حساب‌ها</h4><span id="quick-balance">۰</span></div>
+                </div>
+            </div>
             <div class="card">
                 <h3>🔍 فیلتر و گزارش‌گیری</h3>
                 <div class="filter-row">
@@ -185,7 +189,7 @@ HTML_TEMPLATE = """
             <div class="card">
                 <h3>➕ ثبت تراکنش جدید</h3>
                 <select id="trans-type"><option value="income">دخل (درآمد)</option><option value="expense">خرج (هزینه)</option></select>
-                <input type="text" id="trans-account" placeholder="نام حساب (مثلاً: کیف پول، بانک ملی)" list="accounts-list" value="کیف پول">
+                <input type="text" id="trans-account" placeholder="نام حساب (مثلاً: کیف پول)" list="accounts-list" value="کیف پول">
                 <datalist id="accounts-list"></datalist>
                 <input type="number" id="trans-amount" placeholder="مبلغ (تومان)">
                 <input type="text" id="trans-desc" placeholder="توضیحات">
@@ -216,15 +220,10 @@ HTML_TEMPLATE = """
         function loadTheme() { const theme = localStorage.getItem('theme') || 'light'; document.body.setAttribute('data-theme', theme); document.getElementById('theme-btn').innerText = theme === 'dark' ? '🌙' : '☀️'; }
         function toggleTheme() { const c = document.body.getAttribute('data-theme'); const n = c === 'dark' ? 'light' : 'dark'; document.body.setAttribute('data-theme', n); localStorage.setItem('theme', n); document.getElementById('theme-btn').innerText = n === 'dark' ? '🌙' : '☀️'; }
 
-        // --- Google TTS (POST Method for long texts) ---
         async function speakText(text) {
             if (currentAudio) currentAudio.pause();
             try {
-                const res = await fetch('/api/tts', { 
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify({ text }) 
-                });
+                const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
                 if (!res.ok) throw new Error("TTS failed");
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
@@ -233,7 +232,6 @@ HTML_TEMPLATE = """
             } catch(e) { console.error("Audio play failed:", e); }
         }
 
-        // --- Image Upload Handling ---
         document.getElementById('image-upload').addEventListener('change', function(event) {
             const file = event.target.files[0];
             if (file) {
@@ -250,12 +248,7 @@ HTML_TEMPLATE = """
         $(document).ready(function() {
             function toGregorian(unixTime) {
                 let d = new Date(unixTime);
-                let yyyy = d.getFullYear();
-                let mm = String(d.getMonth() + 1).padStart(2, '0');
-                let dd = String(d.getDate()).padStart(2, '0');
-                let hh = String(d.getHours()).padStart(2, '0');
-                let min = String(d.getMinutes()).padStart(2, '0');
-                return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
             }
             $("#task-due-display").persianDatepicker({ altField: '#task-due', altFormat: 'YYYY-MM-DDTHH:mm', format: 'YYYY/MM/DD HH:mm', autoClose: true, altFieldFormatter: function(unixTime) { return toGregorian(unixTime); } });
             $("#filter-from-display").persianDatepicker({ altField: '#filter-from', altFormat: 'YYYY-MM-DD', format: 'YYYY/MM/DD', autoClose: true, altFieldFormatter: function(unixTime) { let d = new Date(unixTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, onSelect: function() { renderAll(); } });
@@ -290,8 +283,17 @@ HTML_TEMPLATE = """
                 recognition = new SR(); recognition.lang = 'fa-IR'; recognition.interimResults = true; recognition.continuous = false;
                 recognition.onresult = (event) => { let t = ''; for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript; document.getElementById('user-input').value = t; };
                 recognition.onend = () => { isRecording = false; document.getElementById('mic-btn').classList.remove('recording'); document.getElementById('mic-btn').innerText = '🎤'; if(document.getElementById('user-input').value.trim().length > 0) sendToAI(); };
-                recognition.onerror = (event) => { addChatMessage('خطا در میکروفون: ' + event.error, 'system'); isRecording = false; document.getElementById('mic-btn').classList.remove('recording'); document.getElementById('mic-btn').innerText = '🎤'; };
-            } else { addChatMessage('مرورگر شما از میکروفون پشتیبانی نمی‌کند.', 'system'); }
+                recognition.onerror = (event) => {
+                    let errMsg = 'خطا در میکروفون: ' + event.error;
+                    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                        errMsg = '🚫 دسترسی به میکروفون رد شد! لطفاً در تنظیمات آیفون (Settings > Safari > Microphone) اجازه دسترسی را بدهید.';
+                    }
+                    addChatMessage(errMsg, 'system');
+                    isRecording = false; document.getElementById('mic-btn').classList.remove('recording'); document.getElementById('mic-btn').innerText = '🎤';
+                };
+            } else { 
+                addChatMessage('مرورگر شما از میکروفون پشتیبانی نمی‌کند. از مرورگر Safari استفاده کنید.', 'system'); 
+            }
         }
         function toggleMic() {
             if (!recognition) setupMic(); if (!recognition) return;
@@ -305,42 +307,34 @@ HTML_TEMPLATE = """
             const userText = inputField.value.trim();
             if (!userText && !uploadedImage) return alert("متن بنویسید یا عکس اضافه کنید.");
             
-            addChatMessage(userText || "[عکس فیش ارسال شد]", 'user');
-            sendBtn.disabled = true; sendBtn.innerText = 'در حال پردازش...';
+            addChatMessage(userText || "[عکس ارسال شد]", 'user');
+            sendBtn.disabled = true; sendBtn.innerText = '...';
             
             try {
                 const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: userText, image: uploadedImage }) });
                 const data = await res.json();
                 if(data.reply) addChatMessage(data.reply, 'ai');
                 else addChatMessage("خطا در پردازش.", 'ai');
-                
-                // Clear image
                 uploadedImage = null;
                 document.getElementById('image-preview').style.display = 'none';
                 document.getElementById('image-upload').value = '';
-                
                 fetchAppData();
             } catch (error) { addChatMessage("ارتباط با سرور قطع شد.", 'ai'); }
-            finally { inputField.value = ''; sendBtn.disabled = false; sendBtn.innerText = 'ارسال به هوش مصنوعی'; }
+            finally { inputField.value = ''; sendBtn.disabled = false; sendBtn.innerText = 'ارسال'; }
         }
         
         function addChatMessage(text, sender) {
             const chatDisplay = document.getElementById('chat-display');
             const msgDiv = document.createElement('div');
             msgDiv.className = `chat-message ${sender}-msg`;
-            
             if (sender === 'ai') {
                 const speakBtn = document.createElement('span');
-                speakBtn.className = 'speaker-icon';
-                speakBtn.innerHTML = '🔊';
+                speakBtn.className = 'speaker-icon'; speakBtn.innerHTML = '🔊';
                 speakBtn.onclick = () => speakText(text);
-                const textSpan = document.createElement('span');
-                textSpan.innerText = text;
-                msgDiv.appendChild(speakBtn);
-                msgDiv.appendChild(textSpan);
+                const textSpan = document.createElement('span'); textSpan.innerText = text;
+                msgDiv.appendChild(speakBtn); msgDiv.appendChild(textSpan);
                 speakText(text);
             } else { msgDiv.innerText = text; }
-            
             chatDisplay.appendChild(msgDiv);
             chatDisplay.scrollTop = chatDisplay.scrollHeight;
         }
@@ -370,13 +364,9 @@ HTML_TEMPLATE = """
 
         function renderAll() {
             const container = document.getElementById('all-tasks');
-            const quickTasks = document.getElementById('quick-tasks');
             appData.tasks.sort((a,b) => (a.done - b.done) || (a.due || '9999').localeCompare(b.due || '9999'));
             if (appData.tasks.length === 0) container.innerHTML = "<p style='text-align:center; color:var(--text-muted); font-size:14px; padding:10px;'>کاری ثبت نشده است.</p>";
             else container.innerHTML = appData.tasks.map(t => `<div class="list-item"><div class="item-info"><h4 class="${t.done ? 'task-done' : ''}">${t.title}</h4><small>📅 ${formatDate(t.due)}</small></div><div style="display:flex; gap:5px;"><button class="item-action success" onclick="toggleTask(${t.id})">✓</button><button class="item-action" onclick="deleteTask(${t.id})">🗑</button></div></div>`).join('');
-            const undoneTasks = appData.tasks.filter(t => !t.done).slice(0, 3);
-            if(undoneTasks.length === 0) quickTasks.innerHTML = "<p style='text-align:center; color:var(--text-muted); font-size:14px; padding:10px;'>کاری برای انجام نیست!</p>";
-            else quickTasks.innerHTML = undoneTasks.map(t => `<div class="list-item"><div class="item-info"><h4>${t.title}</h4><small>📅 ${formatDate(t.due)}</small></div></div>`).join('');
 
             const filterFrom = document.getElementById('filter-from').value;
             const filterTo = document.getElementById('filter-to').value;
@@ -430,8 +420,7 @@ def get_data():
 @app.route('/api/tts', methods=['POST'])
 def tts():
     text = request.json.get('text', '')
-    if not text:
-        return Response("", status=400)
+    if not text: return Response("", status=400)
     try:
         tts = gTTS(text, lang='fa')
         mp3_fp = io.BytesIO()
@@ -475,10 +464,8 @@ def test_conn():
         payload = {"model": "agnes-2.0-flash", "messages": [{"role": "user", "content": "Test"}]}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         response = requests.post(API_URL, headers=headers, json=payload)
-        if response.status_code == 200:
-            return jsonify({"status": "success"})
-        else:
-            return jsonify({"status": "error", "message": f"API Error {response.status_code}"})
+        if response.status_code == 200: return jsonify({"status": "success"})
+        else: return jsonify({"status": "error", "message": f"API Error {response.status_code}"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
@@ -487,7 +474,6 @@ def chat():
     data = request.json
     user_text = data.get('text', '')
     image_b64 = data.get('image', None)
-    
     app_data = load_data()
     current_dt = datetime.now().isoformat()
     
@@ -522,7 +508,6 @@ Respond in this exact JSON format:
 
 If no new tasks or transactions, leave the array empty."""
 
-    # Build user content (Text or Text+Image)
     user_content = []
     if user_text:
         user_content.append({"type": "text", "text": user_text})
@@ -545,7 +530,6 @@ If no new tasks or transactions, leave the array empty."""
         response = requests.post(API_URL, headers=headers, json=payload)
         response.raise_for_status()
         ai_content = response.json()['choices'][0]['message']['content']
-        
         ai_content = ai_content.replace("```json", "").replace("```", "").strip()
         parsed = json.loads(ai_content)
 
