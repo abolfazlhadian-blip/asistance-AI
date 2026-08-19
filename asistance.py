@@ -2,38 +2,65 @@ import os
 import json
 import time
 import io
-from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string, Response
+import uuid
+from datetime import datetime, date
+from flask import Flask, request, jsonify, render_template_string, Response, session
 import requests
 from urllib.parse import quote
 from gtts import gTTS
 import speech_recognition as sr
 from pydub import AudioSegment
 import imageio_ffmpeg
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Configure pydub to use the packaged ffmpeg
 AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-key-12345')
 
 # --- Configuration ---
-DATA_FILE = 'data.json'
 API_URL = 'https://router.bynara.id/v1/chat/completions'
 API_KEY = 'sk-nry-tZQJP4JySkZdr-4ZpIr20-KJykh6w7fWasPIzMAK36I'
 
+# --- Data Directory Setup ---
+DATA_DIR = 'data_files'
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+USERS_FILE = os.path.join(DATA_DIR, 'users.json')
+
 # --- Data Management ---
-def load_data():
-    if os.path.exists(DATA_FILE):
+def load_users():
+    if os.path.exists(USERS_FILE):
         try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            return {"tasks": [], "transactions": []}
-    return {"tasks": [], "transactions": []}
+            return {"users": {}}
+    return {"users": {}}
 
-def save_data(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+def save_users(data):
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
+
+def load_user_data(user_id):
+    file_path = os.path.join(DATA_DIR, f'user_{user_id}.json')
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            pass
+    return {"tasks": [], "transactions": [], "chat_logs": {}}
+
+def save_user_data(user_id, data):
+    file_path = os.path.join(DATA_DIR, f'user_{user_id}.json')
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def get_current_user_id():
+    return session.get('user_id')
 
 # --- Modern HTML Template ---
 HTML_TEMPLATE = """
@@ -44,7 +71,6 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>دستیار هوشمند من</title>
     <link rel="stylesheet" href="https://unpkg.com/persian-datepicker@latest/dist/css/persian-datepicker.min.css"/>
-    <!-- Vazirmatn Font -->
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -60,11 +86,22 @@ HTML_TEMPLATE = """
         }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; font-family: 'Vazirmatn', 'Tahoma', sans-serif; transition: background-color 0.3s, color 0.3s, border-color 0.3s; }
         body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-main); padding-bottom: 110px; line-height: 1.5; }
+        
+        /* Auth Screen */
+        .auth-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+        .auth-card { background: var(--card-bg); padding: 30px; border-radius: 20px; box-shadow: var(--shadow); width: 100%; max-width: 350px; }
+        .auth-card h2 { text-align: center; margin-top: 0; color: var(--primary); }
+        .auth-card input { margin-bottom: 15px; }
+        .auth-btn { width: 100%; padding: 12px; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 10px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-secondary { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+        
+        /* App Screen */
+        .app-screen { display: none; }
         header { background: var(--card-bg); color: var(--text-main); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
         header h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--primary); }
         .header-actions { display: flex; gap: 10px; }
         .icon-btn { background: var(--input-bg); border: none; color: var(--text-main); width: 40px; height: 40px; border-radius: 12px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .icon-btn:active { transform: scale(0.95); }
         .container { padding: 15px; max-width: 600px; margin: 0 auto; width: 100%; }
         .tab-content { display: none; }
         .active-tab { display: block; animation: fadeIn 0.4s; }
@@ -78,14 +115,12 @@ HTML_TEMPLATE = """
         .stat-income { background: rgba(16, 185, 129, 0.1); color: var(--success); }
         .stat-expense { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
         .stat-balance { background: rgba(99, 102, 241, 0.1); color: var(--primary); grid-column: span 2; }
-        
         .chat-card { margin-bottom: 80px; }
         .chat-box { background: var(--bg-color); border-radius: 16px; padding: 15px; margin-bottom: 15px; min-height: 250px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px; }
         .chat-message { padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.6; max-width: 85%; display: flex; align-items: flex-start; gap: 8px; }
         .ai-msg { background: var(--card-bg); color: var(--text-main); border-bottom-right-radius: 4px; align-self: flex-start; box-shadow: var(--shadow); }
         .user-msg { background: var(--primary); color: white; border-bottom-left-radius: 4px; align-self: flex-end; }
         .system-msg { background: transparent; color: var(--text-muted); font-size: 12px; text-align: center; align-self: center; padding: 5px 10px; border: 1px dashed var(--border-color); border-radius: 20px; }
-        
         input, select, textarea { width: 100%; padding: 14px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 12px; font-size: 15px; outline: none; font-family: inherit; background: var(--input-bg); color: var(--text-main); }
         input:focus, select:focus, textarea:focus { border-color: var(--primary); }
         textarea { resize: none; }
@@ -118,119 +153,181 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body data-theme="light">
-    <header>
-        <h1>✨ دستیار هوشمند</h1>
-        <div class="header-actions">
-            <button class="icon-btn" id="theme-btn" onclick="toggleTheme()">☀️</button>
-            <button class="icon-btn" onclick="checkConnection()">🔌</button>
-        </div>
-    </header>
-    
-    <div class="container">
-        <div id="chat-section" class="tab-content active-tab">
-            <div class="card chat-card">
-                <div class="chat-box" id="chat-display">
-                    <div class="chat-message ai-msg"><span>سلام! عکس فیش رو بفرست یا دکمه میکروفون رو بزن و حرف بزن.</span></div>
-                </div>
-                <img id="image-preview" class="image-preview" alt="پیش‌نمایش">
-                <div class="input-row">
-                    <textarea id="user-input" rows="1" placeholder="صحبت کن یا تایپ کن..."></textarea>
-                    <input type="file" accept="image/*" id="image-upload" hidden>
-                    <button class="input-action-btn" onclick="document.getElementById('image-upload').click()">📎</button>
-                    <button class="input-action-btn mic" id="mic-btn" onclick="toggleMic()">🎤</button>
-                </div>
-                <button class="btn" id="send-btn" onclick="sendToAI()">ارسال</button>
-            </div>
-        </div>
 
-        <div id="tasks" class="tab-content">
-            <div class="card">
-                <h3>➕ افزودن کار جدید</h3>
-                <input type="text" id="task-title" placeholder="عنوان کار">
-                <input type="text" id="task-due-display" placeholder="تاریخ شمسی (کلیک کنید)" readonly>
-                <input type="hidden" id="task-due">
-                <button class="btn" onclick="addManualTask()">ثبت کار</button>
-            </div>
-            <div class="card">
-                <h3>📋 لیست کارها</h3>
-                <div id="all-tasks"></div>
-            </div>
-        </div>
-
-        <div id="finance" class="tab-content">
-            <div class="card">
-                <h3>📊 وضعیت مالی کلی</h3>
-                <div class="stats-grid">
-                    <div class="stat-box stat-income"><h4>درآمد کل</h4><span id="quick-income">۰</span></div>
-                    <div class="stat-box stat-expense"><h4>هزینه کل</h4><span id="quick-expense">۰</span></div>
-                    <div class="stat-box stat-balance"><h4>برآیند تمام حساب‌ها</h4><span id="quick-balance">۰</span></div>
-                </div>
-            </div>
-            <div class="card">
-                <h3>🔍 فیلتر و گزارش‌گیری</h3>
-                <div class="filter-row">
-                    <div>
-                        <label>از تاریخ</label>
-                        <input type="text" id="filter-from-display" placeholder="انتخاب تاریخ" readonly>
-                        <input type="hidden" id="filter-from">
-                    </div>
-                    <div>
-                        <label>تا تاریخ</label>
-                        <input type="text" id="filter-to-display" placeholder="انتخاب تاریخ" readonly>
-                        <input type="hidden" id="filter-to">
-                    </div>
-                </div>
-                <label>حساب بانکی</label>
-                <select id="filter-account" onchange="renderAll()">
-                    <option value="all">همه حساب‌ها</option>
-                </select>
-                <div class="stats-grid" style="margin-top: 15px;">
-                    <div class="stat-box stat-income"><h4>درآمد فیلتر شده</h4><span id="filter-income">۰</span></div>
-                    <div class="stat-box stat-expense"><h4>هزینه فیلتر شده</h4><span id="filter-expense">۰</span></div>
-                </div>
-            </div>
-            <div class="card">
-                <h3>➕ ثبت تراکنش جدید</h3>
-                <select id="trans-type"><option value="income">دخل (درآمد)</option><option value="expense">خرج (هزینه)</option></select>
-                <input type="text" id="trans-account" placeholder="نام حساب (مثلاً: کیف پول)" list="accounts-list" value="کیف پول">
-                <datalist id="accounts-list"></datalist>
-                <input type="number" id="trans-amount" placeholder="مبلغ (تومان)">
-                <input type="text" id="trans-desc" placeholder="توضیحات">
-                <button class="btn" onclick="addManualTransaction()">ثبت تراکنش</button>
-            </div>
-            <div class="card">
-                <h3>💳 تراکنش‌های فیلتر شده</h3>
-                <div id="all-transactions"></div>
-            </div>
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="auth-screen">
+        <div class="auth-card">
+            <h2>ورود به سیستم</h2>
+            <input type="text" id="auth-username" placeholder="نام کاربری">
+            <input type="password" id="auth-password" placeholder="رمز عبور">
+            <button class="auth-btn btn-primary" onclick="login()">ورود</button>
+            <button class="auth-btn btn-secondary" onclick="register()">ثبت نام</button>
+            <div id="auth-error" style="color: var(--danger); text-align: center; font-size: 13px; margin-top: 10px; display: none;"></div>
         </div>
     </div>
 
-    <!-- Alarm Audio Element -->
-    <audio id="alarm-audio" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+    <!-- App Screen -->
+    <div id="app-screen" class="app-screen">
+        <header>
+            <h1>✨ دستیار هوشمند</h1>
+            <div class="header-actions">
+                <button class="icon-btn" id="theme-btn" onclick="toggleTheme()">☀️</button>
+                <button class="icon-btn" onclick="logout()">🚪</button>
+            </div>
+        </header>
+        
+        <div class="container">
+            <div id="chat-section" class="tab-content active-tab">
+                <div class="card chat-card">
+                    <div class="chat-box" id="chat-display"></div>
+                    <img id="image-preview" class="image-preview" alt="پیش‌نمایش">
+                    <div class="input-row">
+                        <textarea id="user-input" rows="1" placeholder="صحبت کن یا تایپ کن..."></textarea>
+                        <input type="file" accept="image/*" id="image-upload" hidden>
+                        <button class="input-action-btn" onclick="document.getElementById('image-upload').click()">📎</button>
+                        <button class="input-action-btn mic" id="mic-btn" onclick="toggleMic()">🎤</button>
+                    </div>
+                    <button class="btn" id="send-btn" onclick="sendToAI()">ارسال</button>
+                </div>
+            </div>
 
-    <nav class="bottom-nav">
-        <button class="nav-btn active" onclick="switchTab('chat-section', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>چت</button>
-        <button class="nav-btn" onclick="switchTab('tasks', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>کارها</button>
-        <button class="nav-btn" onclick="switchTab('finance', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>حسابداری</button>
-    </nav>
+            <div id="tasks" class="tab-content">
+                <div class="card">
+                    <h3>➕ افزودن کار جدید</h3>
+                    <input type="text" id="task-title" placeholder="عنوان کار">
+                    <input type="text" id="task-due-display" placeholder="تاریخ شمسی (کلیک کنید)" readonly>
+                    <input type="hidden" id="task-due">
+                    <button class="btn" onclick="addManualTask()">ثبت کار</button>
+                </div>
+                <div class="card">
+                    <h3>📋 لیست کارها</h3>
+                    <div id="all-tasks"></div>
+                </div>
+            </div>
+
+            <div id="finance" class="tab-content">
+                <div class="card">
+                    <h3>📊 وضعیت مالی کلی</h3>
+                    <div class="stats-grid">
+                        <div class="stat-box stat-income"><h4>درآمد کل</h4><span id="quick-income">۰</span></div>
+                        <div class="stat-box stat-expense"><h4>هزینه کل</h4><span id="quick-expense">۰</span></div>
+                        <div class="stat-box stat-balance"><h4>برآیند تمام حساب‌ها</h4><span id="quick-balance">۰</span></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>🔍 فیلتر و گزارش‌گیری</h3>
+                    <div class="filter-row">
+                        <div>
+                            <label>از تاریخ</label>
+                            <input type="text" id="filter-from-display" placeholder="انتخاب تاریخ" readonly>
+                            <input type="hidden" id="filter-from">
+                        </div>
+                        <div>
+                            <label>تا تاریخ</label>
+                            <input type="text" id="filter-to-display" placeholder="انتخاب تاریخ" readonly>
+                            <input type="hidden" id="filter-to">
+                        </div>
+                    </div>
+                    <label>حساب بانکی</label>
+                    <select id="filter-account" onchange="renderAll()">
+                        <option value="all">همه حساب‌ها</option>
+                    </select>
+                    <div class="stats-grid" style="margin-top: 15px;">
+                        <div class="stat-box stat-income"><h4>درآمد فیلتر شده</h4><span id="filter-income">۰</span></div>
+                        <div class="stat-box stat-expense"><h4>هزینه فیلتر شده</h4><span id="filter-expense">۰</span></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>➕ ثبت تراکنش جدید</h3>
+                    <select id="trans-type"><option value="income">دخل (درآمد)</option><option value="expense">خرج (هزینه)</option></select>
+                    <input type="text" id="trans-account" placeholder="نام حساب (مثلاً: کیف پول)" list="accounts-list" value="کیف پول">
+                    <datalist id="accounts-list"></datalist>
+                    <input type="number" id="trans-amount" placeholder="مبلغ (تومان)">
+                    <input type="text" id="trans-desc" placeholder="توضیحات">
+                    <button class="btn" onclick="addManualTransaction()">ثبت تراکنش</button>
+                </div>
+                <div class="card">
+                    <h3>💳 تراکنش‌های فیلتر شده</h3>
+                    <div id="all-transactions"></div>
+                </div>
+            </div>
+        </div>
+
+        <audio id="alarm-audio" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+
+        <nav class="bottom-nav">
+            <button class="nav-btn active" onclick="switchTab('chat-section', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>چت</button>
+            <button class="nav-btn" onclick="switchTab('tasks', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>کارها</button>
+            <button class="nav-btn" onclick="switchTab('finance', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>حسابداری</button>
+        </nav>
+    </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://unpkg.com/persian-date@latest/dist/persian-date.min.js"></script>
     <script src="https://unpkg.com/persian-datepicker@latest/dist/js/persian-datepicker.min.js"></script>
 
     <script>
-        let appData = { tasks: [], transactions: [] };
+        let appData = { tasks: [], transactions: [], chat_logs: {} };
         let currentAudio = null;
         let uploadedImage = null;
-        let mediaRecorder;
-        let audioChunks = [];
-        let isRecording = false;
+        let mediaRecorder, audioChunks = [], isRecording = false;
         let notifiedTasks = new Set();
         
         function loadTheme() { const theme = localStorage.getItem('theme') || 'light'; document.body.setAttribute('data-theme', theme); document.getElementById('theme-btn').innerText = theme === 'dark' ? '🌙' : '☀️'; }
         function toggleTheme() { const c = document.body.getAttribute('data-theme'); const n = c === 'dark' ? 'light' : 'dark'; document.body.setAttribute('data-theme', n); localStorage.setItem('theme', n); document.getElementById('theme-btn').innerText = n === 'dark' ? '🌙' : '☀️'; }
 
-        // --- Text To Speech (Google TTS) ---
+        // --- Auth Logic ---
+        async function checkAuth() {
+            const res = await fetch('/api/check_auth');
+            const data = await res.json();
+            if (data.authenticated) {
+                document.getElementById('auth-screen').style.display = 'none';
+                document.getElementById('app-screen').style.display = 'block';
+                fetchAppData();
+            } else {
+                document.getElementById('auth-screen').style.display = 'flex';
+                document.getElementById('app-screen').style.display = 'none';
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('auth-username').value;
+            const password = document.getElementById('auth-password').value;
+            const errBox = document.getElementById('auth-error');
+            errBox.style.display = 'none';
+            
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password})
+            });
+            const data = await res.json();
+            if (data.status === 'success') checkAuth();
+            else { errBox.innerText = data.message; errBox.style.display = 'block'; }
+        }
+
+        async function register() {
+            const username = document.getElementById('auth-username').value;
+            const password = document.getElementById('auth-password').value;
+            const errBox = document.getElementById('auth-error');
+            errBox.style.display = 'none';
+            
+            const res = await fetch('/api/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password})
+            });
+            const data = await res.json();
+            if (data.status === 'success') checkAuth();
+            else { errBox.innerText = data.message; errBox.style.display = 'block'; }
+        }
+
+        async function logout() {
+            await fetch('/api/logout');
+            checkAuth();
+        }
+
+        // --- App Logic ---
         async function speakText(text) {
             if (currentAudio) currentAudio.pause();
             try {
@@ -243,18 +340,10 @@ HTML_TEMPLATE = """
             } catch(e) { console.error("Audio play failed:", e); }
         }
 
-        // --- Notification & Alarm System ---
-        function requestNotificationPermission() {
-            if ('Notification' in window && Notification.permission !== 'granted') {
-                Notification.requestPermission();
-            }
-        }
-
         function checkAlarms() {
             const now = new Date();
             appData.tasks.forEach(task => {
                 if (task.done || !task.due || notifiedTasks.has(task.id)) return;
-                
                 const dueDate = new Date(task.due);
                 if (dueDate.getTime() <= now.getTime()) {
                     notifiedTasks.add(task.id);
@@ -264,19 +353,11 @@ HTML_TEMPLATE = """
         }
 
         function triggerAlarm(title) {
-            const alarmAudio = document.getElementById('alarm-audio');
-            alarmAudio.play().catch(e => console.error("Alarm play failed", e));
-            
-            addChatMessage("⏰ یادآوری: زمان انجام کار فرا رسید: " + title, 'system');
-            
-            if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification("⏰ یادآوری کار", { body: title });
-            } else {
-                alert("⏰ یادآوری کار: " + title);
-            }
+            document.getElementById('alarm-audio').play().catch(e => console.error(e));
+            addChatMessage("⏰ یادآوری: " + title, 'system');
+            if ('Notification' in window && Notification.permission === 'granted') new Notification("⏰ یادآوری کار", { body: title });
         }
 
-        // Check alarms every 15 seconds
         setInterval(checkAlarms, 15000);
 
         document.getElementById('image-upload').addEventListener('change', function(event) {
@@ -293,10 +374,7 @@ HTML_TEMPLATE = """
         });
 
         $(document).ready(function() {
-            function toGregorian(unixTime) {
-                let d = new Date(unixTime);
-                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-            }
+            function toGregorian(unixTime) { let d = new Date(unixTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
             $("#task-due-display").persianDatepicker({ altField: '#task-due', altFormat: 'YYYY-MM-DDTHH:mm', format: 'YYYY/MM/DD HH:mm', autoClose: true, altFieldFormatter: function(unixTime) { return toGregorian(unixTime); } });
             $("#filter-from-display").persianDatepicker({ altField: '#filter-from', altFormat: 'YYYY-MM-DD', format: 'YYYY/MM/DD', autoClose: true, altFieldFormatter: function(unixTime) { let d = new Date(unixTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, onSelect: function() { renderAll(); } });
             $("#filter-to-display").persianDatepicker({ altField: '#filter-to', altFormat: 'YYYY-MM-DD', format: 'YYYY/MM/DD', autoClose: true, altFieldFormatter: function(unixTime) { let d = new Date(unixTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, onSelect: function() { renderAll(); } });
@@ -304,18 +382,38 @@ HTML_TEMPLATE = """
 
         async function fetchAppData() {
             const res = await fetch('/api/data');
+            if (res.status === 401) { logout(); return; }
             appData = await res.json();
             renderAll();
+            renderChatHistory();
         }
-        async function checkConnection() {
-            addChatMessage("⏳ در حال تست اتصال...", 'system');
-            try {
-                const res = await fetch('/api/test');
-                const data = await res.json();
-                if(data.status === 'success') addChatMessage("✅ اتصال برقرار است!", 'system');
-                else addChatMessage("❌ خطا: " + data.message, 'system');
-            } catch(e) { addChatMessage("❌ خطای سرور!", 'system'); }
+
+        function renderChatHistory() {
+            const chatDisplay = document.getElementById('chat-display');
+            chatDisplay.innerHTML = '';
+            const today = new Date().toISOString().split('T')[0];
+            const logs = appData.chat_logs[today] || [];
+            
+            if (logs.length === 0) {
+                addChatMessage("سلام! عکس فیش رو بفرست یا دکمه میکروفون رو بزن.", 'ai');
+                return;
+            }
+            
+            logs.forEach(log => {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = `chat-message ${log.sender}-msg`;
+                if (log.sender === 'ai') {
+                    const speakBtn = document.createElement('span');
+                    speakBtn.className = 'speaker-icon'; speakBtn.innerHTML = '🔊';
+                    speakBtn.onclick = () => speakText(log.text);
+                    const textSpan = document.createElement('span'); textSpan.innerText = log.text;
+                    msgDiv.appendChild(speakBtn); msgDiv.appendChild(textSpan);
+                } else { msgDiv.innerText = log.text; }
+                chatDisplay.appendChild(msgDiv);
+            });
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
         }
+
         function switchTab(tabId, btn) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active-tab'));
             document.getElementById(tabId).classList.add('active-tab');
@@ -323,10 +421,8 @@ HTML_TEMPLATE = """
             btn.classList.add('active');
         }
 
-        // --- Advanced Audio Recording ---
         async function toggleMic() {
             const micBtn = document.getElementById('mic-btn');
-            
             if (isRecording) {
                 mediaRecorder.stop();
                 micBtn.classList.remove('recording');
@@ -336,28 +432,15 @@ HTML_TEMPLATE = """
             } else {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    
                     let mimeType = 'audio/webm';
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                        mimeType = 'audio/mp4';
-                        if (!MediaRecorder.isTypeSupported(mimeType)) {
-                            mimeType = ''; // Default
-                        }
-                    }
-                    
+                    if (!MediaRecorder.isTypeSupported(mimeType)) { mimeType = 'audio/mp4'; if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = ''; }
                     mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType: mimeType } : undefined);
                     audioChunks = [];
-                    
-                    mediaRecorder.ondataavailable = event => {
-                        if (event.data.size > 0) audioChunks.push(event.data);
-                    };
-                    
+                    mediaRecorder.ondataavailable = event => { if (event.data.size > 0) audioChunks.push(event.data); };
                     mediaRecorder.onstop = async () => {
                         const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
                         const formData = new FormData();
-                        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-                        formData.append('audio', audioBlob, `voice.${ext}`);
-                        
+                        formData.append('audio', audioBlob, `voice.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`);
                         try {
                             const res = await fetch('/api/stt', { method: 'POST', body: formData });
                             const data = await res.json();
@@ -365,23 +448,15 @@ HTML_TEMPLATE = """
                                 document.getElementById('user-input').value = data.text;
                                 addChatMessage("📝 متن تبدیل شده آماده ارسال است.", 'system');
                                 sendToAI();
-                            } else {
-                                addChatMessage("❌ صدایی شنیده نشد. خطا: " + (data.error || "نامشخص"), 'system');
-                            }
-                        } catch (e) {
-                            addChatMessage("❌ خطا در ارتباط با سرور تبدیل صدا.", 'system');
-                        }
+                            } else { addChatMessage("❌ صدایی شنیده نشد.", 'system'); }
+                        } catch (e) { addChatMessage("❌ خطا در تبدیل صدا.", 'system'); }
                     };
-                    
                     mediaRecorder.start();
                     isRecording = true;
                     micBtn.classList.add('recording');
                     micBtn.innerText = '⏹';
-                    addChatMessage("🎙 در حال ضبط... دوباره دکمه را بزنید تا متوقف شود.", 'system');
-                    
-                } catch (err) {
-                    addChatMessage('🚫 دسترسی به میکروفون رد شد: ' + err.message, 'system');
-                }
+                    addChatMessage("🎙 در حال ضبط...", 'system');
+                } catch (err) { addChatMessage('🚫 دسترسی میکروفون رد شد.', 'system'); }
             }
         }
 
@@ -417,7 +492,6 @@ HTML_TEMPLATE = """
                 speakBtn.onclick = () => speakText(text);
                 const textSpan = document.createElement('span'); textSpan.innerText = text;
                 msgDiv.appendChild(speakBtn); msgDiv.appendChild(textSpan);
-                speakText(text);
             } else { msgDiv.innerText = text; }
             chatDisplay.appendChild(msgDiv);
             chatDisplay.scrollTop = chatDisplay.scrollHeight;
@@ -486,25 +560,72 @@ HTML_TEMPLATE = """
 
         // Init
         loadTheme();
-        requestNotificationPermission();
-        fetchAppData();
+        checkAuth();
     </script>
 </body>
 </html>
 """
 
-# --- Routes ---
+# --- Auth Routes ---
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password: return jsonify({"status": "error", "message": "نام کاربری و رمز عبور الزامی است"}), 400
+    
+    users = load_users()
+    if username in users['users']: return jsonify({"status": "error", "message": "این نام کاربری قبلا ثبت شده"}), 400
+    
+    user_id = str(uuid.uuid4())
+    users['users'][username] = {"password": generate_password_hash(password), "user_id": user_id}
+    save_users(users)
+    
+    session['user_id'] = user_id
+    session['username'] = username
+    return jsonify({"status": "success"})
 
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    users = load_users()
+    
+    if username not in users['users']: return jsonify({"status": "error", "message": "نام کاربری یا رمز عبور اشتباه است"}), 401
+    
+    user = users['users'][username]
+    if not check_password_hash(user['password'], password): return jsonify({"status": "error", "message": "نام کاربری یا رمز عبور اشتباه است"}), 401
+    
+    session['user_id'] = user['user_id']
+    session['username'] = username
+    return jsonify({"status": "success"})
+
+@app.route('/api/logout')
+def logout():
+    session.clear()
+    return jsonify({"status": "success"})
+
+@app.route('/api/check_auth')
+def check_auth():
+    if 'user_id' in session: return jsonify({"authenticated": True})
+    return jsonify({"authenticated": False})
+
+# --- App Routes ---
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
 
 @app.route('/api/data')
 def get_data():
-    return jsonify(load_data())
+    user_id = get_current_user_id()
+    if not user_id: return jsonify({"error": "Unauthorized"}), 401
+    return jsonify(load_user_data(user_id))
 
 @app.route('/api/tts', methods=['POST'])
 def tts():
+    user_id = get_current_user_id()
+    if not user_id: return Response("", status=401)
     text = request.json.get('text', '')
     if not text: return Response("", status=400)
     try:
@@ -518,15 +639,15 @@ def tts():
 
 @app.route('/api/stt', methods=['POST'])
 def stt():
-    if 'audio' not in request.files:
-        return jsonify({"error": "No audio file"}), 400
+    user_id = get_current_user_id()
+    if not user_id: return jsonify({"error": "Unauthorized"}), 401
+    if 'audio' not in request.files: return jsonify({"error": "No audio file"}), 400
         
     audio_file = request.files['audio']
     temp_path = f"temp_{audio_file.filename}"
     audio_file.save(temp_path)
     
     try:
-        # Convert to WAV using pydub and imageio_ffmpeg
         audio = AudioSegment.from_file(temp_path)
         wav_path = temp_path.rsplit('.', 1)[0] + '.wav'
         audio.export(wav_path, format='wav')
@@ -546,90 +667,78 @@ def stt():
 
 @app.route('/api/manual', methods=['POST'])
 def manual_op():
+    user_id = get_current_user_id()
+    if not user_id: return jsonify({"error": "Unauthorized"}), 401
+    
     data = request.json
-    app_data = load_data()
+    user_data = load_user_data(user_id)
     current_time = datetime.now().isoformat()
     
     if data['type'] == 'task':
-        app_data['tasks'].append({"id": int(time.time() * 1000), "title": data['title'], "due": data.get('due', ''), "done": False})
+        user_data['tasks'].append({"id": int(time.time() * 1000), "title": data['title'], "due": data.get('due', ''), "done": False})
     elif data['type'] == 'toggle_task':
-        for t in app_data['tasks']:
+        for t in user_data['tasks']:
             if t['id'] == data['id']: t['done'] = not t['done']; break
     elif data['type'] == 'delete_task':
-        app_data['tasks'] = [t for t in app_data['tasks'] if t['id'] != data['id']]
+        user_data['tasks'] = [t for t in user_data['tasks'] if t['id'] != data['id']]
     elif data['type'] == 'transaction':
-        app_data['transactions'].append({
-            "id": int(time.time() * 1000),
-            "type": data['trans_type'],
-            "account": data.get('account', 'کیف پول'),
-            "amount": data['amount'],
-            "desc": data.get('desc', ''),
-            "date": current_time
+        user_data['transactions'].append({
+            "id": int(time.time() * 1000), "type": data['trans_type'],
+            "account": data.get('account', 'کیف پول'), "amount": data['amount'],
+            "desc": data.get('desc', ''), "date": current_time
         })
     elif data['type'] == 'delete_trans':
-        app_data['transactions'] = [t for t in app_data['transactions'] if t['id'] != data['id']]
+        user_data['transactions'] = [t for t in user_data['transactions'] if t['id'] != data['id']]
         
-    save_data(app_data)
+    save_user_data(user_id, user_data)
     return jsonify({"status": "success"})
-
-@app.route('/api/test')
-def test_conn():
-    try:
-        payload = {"model": "agnes-2.0-flash", "messages": [{"role": "user", "content": "Test"}]}
-        headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        response = requests.post(API_URL, headers=headers, json=payload)
-        if response.status_code == 200: return jsonify({"status": "success"})
-        else: return jsonify({"status": "error", "message": f"API Error {response.status_code}"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
+    user_id = get_current_user_id()
+    if not user_id: return jsonify({"error": "Unauthorized"}), 401
+    
     data = request.json
     user_text = data.get('text', '')
     image_b64 = data.get('image', None)
-    app_data = load_data()
-    current_dt = datetime.now().isoformat()
     
-    current_tasks = "\n".join([f"- {t['title']} (Done: {'Yes' if t['done'] else 'No'}, Due: {t.get('due', 'N/A')})" for t in app_data['tasks']]) or "None"
-    current_trans = "\n".join([f"- {t['type']}: {t['amount']} ({t.get('desc', '')}) [Account: {t.get('account', 'N/A')}]" for t in app_data['transactions']]) or "None"
+    user_data = load_user_data(user_id)
+    current_dt = datetime.now().isoformat()
+    today_str = date.today().isoformat()
+    
+    current_tasks = "\n".join([f"- {t['title']} (Done: {'Yes' if t['done'] else 'No'}, Due: {t.get('due', 'N/A')})" for t in user_data['tasks']]) or "None"
+    current_trans = "\n".join([f"- {t['type']}: {t['amount']} ({t.get('desc', '')}) [Account: {t.get('account', 'N/A')}]" for t in user_data['transactions']]) or "None"
 
     system_prompt = f"""You are a smart personal assistant. The user speaks Persian.
 Your task is to extract Tasks and financial Transactions from the user's text or image.
 Also, provide a short analysis and suggestion based on current and new data.
 
 CRITICAL RULES:
-1. Current Date and Time is: {current_dt}. Use this to calculate relative dates like "tomorrow".
+1. Current Date and Time is: {current_dt}.
 2. All dates MUST be in Gregorian ISO format: YYYY-MM-DDTHH:MM.
 3. If a transaction doesn't have a specific date, use the Current Date and Time.
 4. Amounts must be numeric (Toman).
 5. If the user mentions an account, extract it as "account". If not mentioned, default "account" to "کیف پول".
-6. If an image is provided, analyze it (receipt, bank slip, bill) to extract amount, date, description, and account.
+6. If an image is provided, analyze it to extract amount, date, description, and account.
 7. Your response MUST be ONLY a valid JSON object.
 
 Current User Data:
-Tasks:
-{current_tasks}
-Transactions:
-{current_trans}
+Tasks: {current_tasks}
+Transactions: {current_trans}
 
 Respond in this exact JSON format:
 {{
-  "new_tasks": [{{"title": "Task title in Persian", "due": "YYYY-MM-DDTHH:MM" or null}}],
-  "new_transactions": [{{"type": "income or expense", "amount": number, "desc": "Description", "account": "Account name in Persian", "date": "YYYY-MM-DDTHH:MM"}}],
-  "reply": "Friendly Persian text response with analysis"
+  "new_tasks": [{{"title": "Task title", "due": "YYYY-MM-DDTHH:MM" or null}}],
+  "new_transactions": [{{"type": "income or expense", "amount": number, "desc": "Description", "account": "Account name", "date": "YYYY-MM-DDTHH:MM"}}],
+  "reply": "Friendly Persian text response"
 }}
 
 If no new tasks or transactions, leave the array empty."""
 
     user_content = []
-    if user_text:
-        user_content.append({"type": "text", "text": user_text})
-    elif image_b64:
-        user_content.append({"type": "text", "text": "لطفا اطلاعات این فیش را خوانده و تراکنش آن را ثبت کن."})
-        
-    if image_b64:
-        user_content.append({"type": "image_url", "image_url": {"url": image_b64}})
+    if user_text: user_content.append({"type": "text", "text": user_text})
+    elif image_b64: user_content.append({"type": "text", "text": "لطفا اطلاعات این فیش را خوانده و تراکنش آن را ثبت کن."})
+    if image_b64: user_content.append({"type": "image_url", "image_url": {"url": image_b64}})
 
     payload = {
         "model": "agnes-2.0-flash",
@@ -649,27 +758,25 @@ If no new tasks or transactions, leave the array empty."""
 
         if 'new_tasks' in parsed:
             for t in parsed['new_tasks']:
-                app_data['tasks'].append({
-                    "id": int(time.time() * 1000),
-                    "title": t['title'],
-                    "due": t.get('due', ''),
-                    "done": False
-                })
+                user_data['tasks'].append({"id": int(time.time() * 1000), "title": t['title'], "due": t.get('due', ''), "done": False})
                 
         if 'new_transactions' in parsed:
             for t in parsed['new_transactions']:
-                trans_date = t.get('date', current_dt)
-                app_data['transactions'].append({
-                    "id": int(time.time() * 1000),
-                    "type": t['type'],
-                    "amount": int(t['amount']),
-                    "desc": t.get('desc', ''),
-                    "account": t.get('account', 'کیف پول'),
-                    "date": trans_date
+                user_data['transactions'].append({
+                    "id": int(time.time() * 1000), "type": t['type'], "amount": int(t['amount']),
+                    "desc": t.get('desc', ''), "account": t.get('account', 'کیف پول'), "date": t.get('date', current_dt)
                 })
                 
-        save_data(app_data)
-        return jsonify({"reply": parsed.get('reply', 'ثبت شد!')})
+        ai_reply = parsed.get('reply', 'ثبت شد!')
+        
+        # Save chat log
+        if today_str not in user_data['chat_logs']:
+            user_data['chat_logs'][today_str] = []
+        user_data['chat_logs'][today_str].append({"sender": "user", "text": user_text or "[عکس ارسال شد]"})
+        user_data['chat_logs'][today_str].append({"sender": "ai", "text": ai_reply})
+        
+        save_user_data(user_id, user_data)
+        return jsonify({"reply": ai_reply})
         
     except Exception as e:
         return jsonify({"reply": f"خطا در پردازش هوش مصنوعی: {str(e)}"})
