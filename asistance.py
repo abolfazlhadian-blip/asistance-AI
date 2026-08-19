@@ -87,7 +87,6 @@ HTML_TEMPLATE = """
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; font-family: 'Vazirmatn', 'Tahoma', sans-serif; transition: background-color 0.3s, color 0.3s, border-color 0.3s; }
         body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-main); padding-bottom: 110px; line-height: 1.5; }
         
-        /* Auth Screen */
         .auth-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
         .auth-card { background: var(--card-bg); padding: 30px; border-radius: 20px; box-shadow: var(--shadow); width: 100%; max-width: 350px; }
         .auth-card h2 { text-align: center; margin-top: 0; color: var(--primary); }
@@ -96,7 +95,6 @@ HTML_TEMPLATE = """
         .btn-primary { background: var(--primary); color: white; }
         .btn-secondary { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
         
-        /* App Screen */
         .app-screen { display: none; }
         header { background: var(--card-bg); color: var(--text-main); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
         header h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--primary); }
@@ -144,8 +142,8 @@ HTML_TEMPLATE = """
         .item-action { background: var(--input-bg); border: none; color: var(--danger); font-size: 16px; cursor: pointer; padding: 8px 12px; border-radius: 8px; }
         .item-action.success { color: var(--success); }
         .task-done { text-decoration: line-through; color: var(--text-muted); }
-        .bottom-nav { position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%); width: calc(100% - 30px); max-width: 400px; background: var(--card-bg); display: flex; justify-content: space-around; padding: 10px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); z-index: 1000; border: 1px solid var(--border-color); }
-        .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 11px; font-weight: 500; cursor: pointer; padding: 5px 15px; border-radius: 12px; }
+        .bottom-nav { position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%); width: calc(100% - 30px); max-width: 500px; background: var(--card-bg); display: flex; justify-content: space-around; padding: 10px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); z-index: 1000; border: 1px solid var(--border-color); }
+        .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 11px; font-weight: 500; cursor: pointer; padding: 5px 10px; border-radius: 12px; }
         .nav-btn svg { width: 24px; height: 24px; margin-bottom: 2px; }
         .nav-btn.active { color: var(--primary); background: rgba(99, 102, 241, 0.1); }
         .speaker-icon { font-size: 14px; cursor: pointer; margin-top: 2px; }
@@ -251,6 +249,22 @@ HTML_TEMPLATE = """
                     <div id="all-transactions"></div>
                 </div>
             </div>
+
+            <!-- Settings Tab -->
+            <div id="settings" class="tab-content">
+                <div class="card">
+                    <h3>🔑 تغییر رمز عبور</h3>
+                    <input type="password" id="old-pass" placeholder="رمز عبور فعلی">
+                    <input type="password" id="new-pass" placeholder="رمز عبور جدید">
+                    <button class="btn" onclick="changePassword()">تغییر رمز</button>
+                </div>
+                
+                <!-- Admin Panel (Only visible for admin) -->
+                <div class="card" id="admin-panel" style="display: none;">
+                    <h3>👑 مدیریت کاربران</h3>
+                    <div id="user-list"></div>
+                </div>
+            </div>
         </div>
 
         <audio id="alarm-audio" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
@@ -259,6 +273,7 @@ HTML_TEMPLATE = """
             <button class="nav-btn active" onclick="switchTab('chat-section', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>چت</button>
             <button class="nav-btn" onclick="switchTab('tasks', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>کارها</button>
             <button class="nav-btn" onclick="switchTab('finance', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>حسابداری</button>
+            <button class="nav-btn" onclick="switchTab('settings', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>تنظیمات</button>
         </nav>
     </div>
 
@@ -268,15 +283,12 @@ HTML_TEMPLATE = """
 
     <script>
         let appData = { tasks: [], transactions: [], chat_logs: {} };
-        let currentAudio = null;
-        let uploadedImage = null;
-        let mediaRecorder, audioChunks = [], isRecording = false;
+        let currentAudio = null, uploadedImage = null, mediaRecorder, audioChunks = [], isRecording = false;
         let notifiedTasks = new Set();
         
         function loadTheme() { const theme = localStorage.getItem('theme') || 'light'; document.body.setAttribute('data-theme', theme); document.getElementById('theme-btn').innerText = theme === 'dark' ? '🌙' : '☀️'; }
         function toggleTheme() { const c = document.body.getAttribute('data-theme'); const n = c === 'dark' ? 'light' : 'dark'; document.body.setAttribute('data-theme', n); localStorage.setItem('theme', n); document.getElementById('theme-btn').innerText = n === 'dark' ? '🌙' : '☀️'; }
 
-        // --- Auth Logic ---
         async function checkAuth() {
             const res = await fetch('/api/check_auth');
             const data = await res.json();
@@ -284,6 +296,10 @@ HTML_TEMPLATE = """
                 document.getElementById('auth-screen').style.display = 'none';
                 document.getElementById('app-screen').style.display = 'block';
                 fetchAppData();
+                if (data.is_admin) {
+                    document.getElementById('admin-panel').style.display = 'block';
+                    loadAdminUsers();
+                }
             } else {
                 document.getElementById('auth-screen').style.display = 'flex';
                 document.getElementById('app-screen').style.display = 'none';
@@ -293,14 +309,8 @@ HTML_TEMPLATE = """
         async function login() {
             const username = document.getElementById('auth-username').value;
             const password = document.getElementById('auth-password').value;
-            const errBox = document.getElementById('auth-error');
-            errBox.style.display = 'none';
-            
-            const res = await fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username, password})
-            });
+            const errBox = document.getElementById('auth-error'); errBox.style.display = 'none';
+            const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password}) });
             const data = await res.json();
             if (data.status === 'success') checkAuth();
             else { errBox.innerText = data.message; errBox.style.display = 'block'; }
@@ -309,66 +319,69 @@ HTML_TEMPLATE = """
         async function register() {
             const username = document.getElementById('auth-username').value;
             const password = document.getElementById('auth-password').value;
-            const errBox = document.getElementById('auth-error');
-            errBox.style.display = 'none';
-            
-            const res = await fetch('/api/register', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username, password})
-            });
+            const errBox = document.getElementById('auth-error'); errBox.style.display = 'none';
+            const res = await fetch('/api/register', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password}) });
             const data = await res.json();
             if (data.status === 'success') checkAuth();
             else { errBox.innerText = data.message; errBox.style.display = 'block'; }
         }
 
-        async function logout() {
-            await fetch('/api/logout');
-            checkAuth();
+        async function logout() { await fetch('/api/logout'); checkAuth(); }
+
+        // Settings Logic
+        async function changePassword() {
+            const oldPass = document.getElementById('old-pass').value;
+            const newPass = document.getElementById('new-pass').value;
+            const res = await fetch('/api/change_password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({old_pass: oldPass, new_pass: newPass}) });
+            const data = await res.json();
+            if (data.status === 'success') alert('رمز عبور با موفقیت تغییر کرد');
+            else alert('خطا: ' + data.message);
         }
 
-        // --- App Logic ---
+        async function loadAdminUsers() {
+            const res = await fetch('/api/admin/users');
+            const data = await res.json();
+            const list = document.getElementById('user-list');
+            if (data.users.length === 0) list.innerHTML = "<p>هیچ کاربری وجود ندارد.</p>";
+            else list.innerHTML = data.users.map(u => `<div class="list-item"><div class="item-info"><h4>${u.username}</h4></div><button class="item-action" onclick="deleteUser('${u.username}')">🗑</button></div>`).join('');
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`آیا از حذف کاربر ${username} مطمئن هستید؟`)) return;
+            await fetch('/api/admin/delete_user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username}) });
+            loadAdminUsers();
+        }
+
         async function speakText(text) {
             if (currentAudio) currentAudio.pause();
             try {
                 const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
-                if (!res.ok) throw new Error("TTS failed");
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                currentAudio = new Audio(url);
-                currentAudio.play();
-            } catch(e) { console.error("Audio play failed:", e); }
+                const blob = await res.blob(); const url = URL.createObjectURL(blob);
+                currentAudio = new Audio(url); currentAudio.play();
+            } catch(e) { console.error(e); }
         }
 
         function checkAlarms() {
             const now = new Date();
             appData.tasks.forEach(task => {
                 if (task.done || !task.due || notifiedTasks.has(task.id)) return;
-                const dueDate = new Date(task.due);
-                if (dueDate.getTime() <= now.getTime()) {
-                    notifiedTasks.add(task.id);
-                    triggerAlarm(task.title);
+                if (new Date(task.due).getTime() <= now.getTime()) {
+                    notifiedTasks.add(task.id); triggerAlarm(task.title);
                 }
             });
         }
-
         function triggerAlarm(title) {
             document.getElementById('alarm-audio').play().catch(e => console.error(e));
             addChatMessage("⏰ یادآوری: " + title, 'system');
             if ('Notification' in window && Notification.permission === 'granted') new Notification("⏰ یادآوری کار", { body: title });
         }
-
         setInterval(checkAlarms, 15000);
 
         document.getElementById('image-upload').addEventListener('change', function(event) {
             const file = event.target.files[0];
             if (file) {
                 const reader = new FileReader();
-                reader.onload = function(e) {
-                    uploadedImage = e.target.result;
-                    document.getElementById('image-preview').src = uploadedImage;
-                    document.getElementById('image-preview').style.display = 'block';
-                }
+                reader.onload = function(e) { uploadedImage = e.target.result; document.getElementById('image-preview').src = uploadedImage; document.getElementById('image-preview').style.display = 'block'; }
                 reader.readAsDataURL(file);
             }
         });
@@ -381,31 +394,19 @@ HTML_TEMPLATE = """
         });
 
         async function fetchAppData() {
-            const res = await fetch('/api/data');
-            if (res.status === 401) { logout(); return; }
-            appData = await res.json();
-            renderAll();
-            renderChatHistory();
+            const res = await fetch('/api/data'); if (res.status === 401) { logout(); return; }
+            appData = await res.json(); renderAll(); renderChatHistory();
         }
 
         function renderChatHistory() {
-            const chatDisplay = document.getElementById('chat-display');
-            chatDisplay.innerHTML = '';
+            const chatDisplay = document.getElementById('chat-display'); chatDisplay.innerHTML = '';
             const today = new Date().toISOString().split('T')[0];
             const logs = appData.chat_logs[today] || [];
-            
-            if (logs.length === 0) {
-                addChatMessage("سلام! عکس فیش رو بفرست یا دکمه میکروفون رو بزن.", 'ai');
-                return;
-            }
-            
+            if (logs.length === 0) { addChatMessage("سلام! عکس فیش رو بفرست یا دکمه میکروفون رو بزن.", 'ai'); return; }
             logs.forEach(log => {
-                const msgDiv = document.createElement('div');
-                msgDiv.className = `chat-message ${log.sender}-msg`;
+                const msgDiv = document.createElement('div'); msgDiv.className = `chat-message ${log.sender}-msg`;
                 if (log.sender === 'ai') {
-                    const speakBtn = document.createElement('span');
-                    speakBtn.className = 'speaker-icon'; speakBtn.innerHTML = '🔊';
-                    speakBtn.onclick = () => speakText(log.text);
+                    const speakBtn = document.createElement('span'); speakBtn.className = 'speaker-icon'; speakBtn.innerHTML = '🔊'; speakBtn.onclick = () => speakText(log.text);
                     const textSpan = document.createElement('span'); textSpan.innerText = log.text;
                     msgDiv.appendChild(speakBtn); msgDiv.appendChild(textSpan);
                 } else { msgDiv.innerText = log.text; }
@@ -424,82 +425,55 @@ HTML_TEMPLATE = """
         async function toggleMic() {
             const micBtn = document.getElementById('mic-btn');
             if (isRecording) {
-                mediaRecorder.stop();
-                micBtn.classList.remove('recording');
-                micBtn.innerText = '🎤';
-                isRecording = false;
-                addChatMessage("⏳ در حال پردازش صدا...", 'system');
+                mediaRecorder.stop(); micBtn.classList.remove('recording'); micBtn.innerText = '🎤'; isRecording = false; addChatMessage("⏳ در حال پردازش صدا...", 'system');
             } else {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    let mimeType = 'audio/webm';
-                    if (!MediaRecorder.isTypeSupported(mimeType)) { mimeType = 'audio/mp4'; if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = ''; }
-                    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType: mimeType } : undefined);
-                    audioChunks = [];
+                    let mimeType = 'audio/webm'; if (!MediaRecorder.isTypeSupported(mimeType)) { mimeType = 'audio/mp4'; if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = ''; }
+                    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType: mimeType } : undefined); audioChunks = [];
                     mediaRecorder.ondataavailable = event => { if (event.data.size > 0) audioChunks.push(event.data); };
                     mediaRecorder.onstop = async () => {
                         const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
-                        const formData = new FormData();
-                        formData.append('audio', audioBlob, `voice.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`);
+                        const formData = new FormData(); formData.append('audio', audioBlob, `voice.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`);
                         try {
-                            const res = await fetch('/api/stt', { method: 'POST', body: formData });
-                            const data = await res.json();
-                            if (data.text && data.text.trim().length > 0) {
-                                document.getElementById('user-input').value = data.text;
-                                addChatMessage("📝 متن تبدیل شده آماده ارسال است.", 'system');
-                                sendToAI();
-                            } else { addChatMessage("❌ صدایی شنیده نشد.", 'system'); }
+                            const res = await fetch('/api/stt', { method: 'POST', body: formData }); const data = await res.json();
+                            if (data.text && data.text.trim().length > 0) { document.getElementById('user-input').value = data.text; sendToAI(); }
+                            else { addChatMessage("❌ صدایی شنیده نشد.", 'system'); }
                         } catch (e) { addChatMessage("❌ خطا در تبدیل صدا.", 'system'); }
                     };
-                    mediaRecorder.start();
-                    isRecording = true;
-                    micBtn.classList.add('recording');
-                    micBtn.innerText = '⏹';
-                    addChatMessage("🎙 در حال ضبط...", 'system');
+                    mediaRecorder.start(); isRecording = true; micBtn.classList.add('recording'); micBtn.innerText = '⏹';
                 } catch (err) { addChatMessage('🚫 دسترسی میکروفون رد شد.', 'system'); }
             }
         }
 
         async function sendToAI() {
-            const inputField = document.getElementById('user-input');
-            const sendBtn = document.getElementById('send-btn');
+            const inputField = document.getElementById('user-input'); const sendBtn = document.getElementById('send-btn');
             const userText = inputField.value.trim();
             if (!userText && !uploadedImage) return alert("متن بنویسید یا عکس اضافه کنید.");
-            
-            addChatMessage(userText || "[عکس ارسال شد]", 'user');
-            sendBtn.disabled = true; sendBtn.innerText = '...';
-            
+            addChatMessage(userText || "[عکس ارسال شد]", 'user'); sendBtn.disabled = true; sendBtn.innerText = '...';
             try {
                 const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: userText, image: uploadedImage }) });
                 const data = await res.json();
-                if(data.reply) addChatMessage(data.reply, 'ai');
-                else addChatMessage("خطا در پردازش.", 'ai');
-                uploadedImage = null;
-                document.getElementById('image-preview').style.display = 'none';
-                document.getElementById('image-upload').value = '';
+                if(data.reply) addChatMessage(data.reply, 'ai'); else addChatMessage("خطا در پردازش.", 'ai');
+                uploadedImage = null; document.getElementById('image-preview').style.display = 'none'; document.getElementById('image-upload').value = '';
                 fetchAppData();
             } catch (error) { addChatMessage("ارتباط با سرور قطع شد.", 'ai'); }
             finally { inputField.value = ''; sendBtn.disabled = false; sendBtn.innerText = 'ارسال'; }
         }
         
         function addChatMessage(text, sender) {
-            const chatDisplay = document.getElementById('chat-display');
-            const msgDiv = document.createElement('div');
+            const chatDisplay = document.getElementById('chat-display'); const msgDiv = document.createElement('div');
             msgDiv.className = `chat-message ${sender}-msg`;
             if (sender === 'ai') {
-                const speakBtn = document.createElement('span');
-                speakBtn.className = 'speaker-icon'; speakBtn.innerHTML = '🔊';
-                speakBtn.onclick = () => speakText(text);
+                const speakBtn = document.createElement('span'); speakBtn.className = 'speaker-icon'; speakBtn.innerHTML = '🔊'; speakBtn.onclick = () => speakText(text);
                 const textSpan = document.createElement('span'); textSpan.innerText = text;
                 msgDiv.appendChild(speakBtn); msgDiv.appendChild(textSpan);
             } else { msgDiv.innerText = text; }
-            chatDisplay.appendChild(msgDiv);
-            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+            chatDisplay.appendChild(msgDiv); chatDisplay.scrollTop = chatDisplay.scrollHeight;
         }
 
         async function addManualTask() {
-            const title = document.getElementById('task-title').value;
-            const due = document.getElementById('task-due').value;
+            const title = document.getElementById('task-title').value; const due = document.getElementById('task-due').value;
             if (!title) return alert('عنوان کار را وارد کنید');
             await fetch('/api/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'task', title, due }) });
             document.getElementById('task-title').value = ''; document.getElementById('task-due').value = ''; document.getElementById('task-due-display').value = ''; fetchAppData();
@@ -507,10 +481,8 @@ HTML_TEMPLATE = """
         async function toggleTask(id) { await fetch('/api/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'toggle_task', id }) }); fetchAppData(); }
         async function deleteTask(id) { await fetch('/api/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'delete_task', id }) }); fetchAppData(); }
         async function addManualTransaction() {
-            const type = document.getElementById('trans-type').value;
-            const account = document.getElementById('trans-account').value || 'کیف پول';
-            const amount = parseInt(document.getElementById('trans-amount').value);
-            const desc = document.getElementById('trans-desc').value;
+            const type = document.getElementById('trans-type').value; const account = document.getElementById('trans-account').value || 'کیف پول';
+            const amount = parseInt(document.getElementById('trans-amount').value); const desc = document.getElementById('trans-desc').value;
             if (!amount || amount <= 0) return alert('مبلغ صحیح وارد کنید');
             await fetch('/api/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'transaction', trans_type: type, account, amount, desc }) });
             document.getElementById('trans-amount').value = ''; document.getElementById('trans-desc').value = ''; fetchAppData();
@@ -526,11 +498,8 @@ HTML_TEMPLATE = """
             if (appData.tasks.length === 0) container.innerHTML = "<p style='text-align:center; color:var(--text-muted); font-size:14px; padding:10px;'>کاری ثبت نشده است.</p>";
             else container.innerHTML = appData.tasks.map(t => `<div class="list-item"><div class="item-info"><h4 class="${t.done ? 'task-done' : ''}">${t.title}</h4><small>📅 ${formatDate(t.due)}</small></div><div style="display:flex; gap:5px;"><button class="item-action success" onclick="toggleTask(${t.id})">✓</button><button class="item-action" onclick="deleteTask(${t.id})">🗑</button></div></div>`).join('');
 
-            const filterFrom = document.getElementById('filter-from').value;
-            const filterTo = document.getElementById('filter-to').value;
-            const filterAcc = document.getElementById('filter-account').value;
-            const accountsList = document.getElementById('accounts-list');
-            const filterAccSelect = document.getElementById('filter-account');
+            const filterFrom = document.getElementById('filter-from').value; const filterTo = document.getElementById('filter-to').value; const filterAcc = document.getElementById('filter-account').value;
+            const accountsList = document.getElementById('accounts-list'); const filterAccSelect = document.getElementById('filter-account');
             const uniqueAccounts = [...new Set(appData.transactions.map(t => t.account).filter(Boolean))];
             accountsList.innerHTML = uniqueAccounts.map(acc => `<option value="${acc}">`).join('');
             const currentFilterAcc = filterAccSelect.value;
@@ -558,9 +527,7 @@ HTML_TEMPLATE = """
             document.getElementById('quick-balance').innerText = formatNumber(income - expense);
         }
 
-        // Init
-        loadTheme();
-        checkAuth();
+        loadTheme(); checkAuth();
     </script>
 </body>
 </html>
@@ -608,8 +575,47 @@ def logout():
 
 @app.route('/api/check_auth')
 def check_auth():
-    if 'user_id' in session: return jsonify({"authenticated": True})
+    if 'user_id' in session:
+        return jsonify({"authenticated": True, "is_admin": session.get('username') == 'admin'})
     return jsonify({"authenticated": False})
+
+# --- Settings & Admin Routes ---
+@app.route('/api/change_password', methods=['POST'])
+def change_password():
+    user_id = get_current_user_id()
+    if not user_id: return jsonify({"error": "Unauthorized"}), 401
+    
+    data = request.json
+    users = load_users()
+    username = session.get('username')
+    
+    if not check_password_hash(users['users'][username]['password'], data['old_pass']):
+        return jsonify({"status": "error", "message": "رمز عبور فعلی اشتباه است"}), 400
+        
+    users['users'][username]['password'] = generate_password_hash(data['new_pass'])
+    save_users(users)
+    return jsonify({"status": "success"})
+
+@app.route('/api/admin/users')
+def admin_users():
+    if session.get('username') != 'admin': return jsonify({"error": "Forbidden"}), 403
+    users = load_users()
+    safe_users = [{"username": u} for u in users['users'].keys()]
+    return jsonify({"users": safe_users})
+
+@app.route('/api/admin/delete_user', methods=['POST'])
+def delete_user():
+    if session.get('username') != 'admin': return jsonify({"error": "Forbidden"}), 403
+    data = request.json
+    username_to_delete = data.get('username')
+    if username_to_delete == 'admin': return jsonify({"status": "error", "message": "نمی‌توانید ادمین اصلی را حذف کنید"}), 400
+    
+    users = load_users()
+    if username_to_delete in users['users']:
+        del users['users'][username_to_delete]
+        save_users(users)
+        return jsonify({"status": "success"})
+    return jsonify({"status": "error", "message": "کاربر یافت نشد"}), 404
 
 # --- App Routes ---
 @app.route('/')
@@ -769,7 +775,6 @@ If no new tasks or transactions, leave the array empty."""
                 
         ai_reply = parsed.get('reply', 'ثبت شد!')
         
-        # Save chat log
         if today_str not in user_data['chat_logs']:
             user_data['chat_logs'][today_str] = []
         user_data['chat_logs'][today_str].append({"sender": "user", "text": user_text or "[عکس ارسال شد]"})
