@@ -273,30 +273,53 @@ HTML_TEMPLATE = """
             btn.classList.add('active');
         }
 
-        // --- iOS Compatible Microphone Logic with Detailed Debug ---
+        // --- Detailed Debug Microphone Logic ---
         function setupMic() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (SR) {
+                addChatMessage("ℹ️ سیستم تشخیص گفتار در مرورگر پشتیبانی می‌شود.", 'system');
                 recognition = new SR(); 
                 recognition.lang = 'fa-IR'; 
                 recognition.interimResults = true; 
                 recognition.continuous = false;
-                recognition.onresult = (event) => { let t = ''; for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript; document.getElementById('user-input').value = t; };
+                
+                recognition.onstart = () => {
+                    addChatMessage("🎙 میکروفون روشن شد. حالا حرف بزنید...", 'system');
+                    isRecording = true;
+                    document.getElementById('mic-btn').classList.add('recording');
+                    document.getElementById('mic-btn').innerText = '⏹';
+                };
+                
+                recognition.onresult = (event) => { 
+                    let t = ''; 
+                    for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript; 
+                    document.getElementById('user-input').value = t; 
+                };
+                
                 recognition.onend = () => { 
+                    addChatMessage("⏹ ضبط صدا پایان یافت.", 'system');
                     isRecording = false; 
                     document.getElementById('mic-btn').classList.remove('recording'); 
                     document.getElementById('mic-btn').innerText = '🎤'; 
                     if(document.getElementById('user-input').value.trim().length > 0) sendToAI(); 
                 };
+                
                 recognition.onerror = (event) => {
-                    let errMsg = 'خطا در میکروفون: ' + event.error;
+                    let errMsg = '❌ خطای میکروفون: ' + event.error;
+                    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                        errMsg = '🚫 دسترسی به میکروفون در مرورگر رد شد.';
+                    } else if (event.error === 'no-speech') {
+                        errMsg = '🔇 صدایی شنیده نشد. لطفاً دوباره تلاش کنید.';
+                    } else if (event.error === 'audio-capture') {
+                        errMsg = '🎤 میکروفون فیزیکی دستگاه یافت نشد.';
+                    }
                     addChatMessage(errMsg, 'system');
                     isRecording = false; 
                     document.getElementById('mic-btn').classList.remove('recording'); 
                     document.getElementById('mic-btn').innerText = '🎤';
                 };
             } else { 
-                addChatMessage('مرورگر شما از میکروفون پشتیبانی نمی‌کند. از مرورگر Safari استفاده کنید.', 'system'); 
+                addChatMessage('❌ مرورگر شما از تشخیص گفتار پشتیبانی نمی‌کند.', 'system'); 
             }
         }
         
@@ -308,33 +331,11 @@ HTML_TEMPLATE = """
                 recognition.stop();
             } else {
                 document.getElementById('user-input').value = '';
-                
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    navigator.mediaDevices.getUserMedia({ audio: true })
-                        .then(function(stream) {
-                            try {
-                                recognition.start();
-                                isRecording = true;
-                                document.getElementById('mic-btn').classList.add('recording');
-                                document.getElementById('mic-btn').innerText = '⏹';
-                                setTimeout(() => { stream.getTracks().forEach(track => track.stop()); }, 500);
-                            } catch(e) {
-                                addChatMessage('خطا در شروع ضبط: ' + e.message, 'system');
-                                stream.getTracks().forEach(track => track.stop());
-                            }
-                        })
-                        .catch(function(err) {
-                            addChatMessage('🚫 دسترسی میکروفون رد شد: ' + err.message + ' (نام خطا: ' + err.name + ')', 'system');
-                        });
-                } else {
-                    try {
-                        recognition.start();
-                        isRecording = true;
-                        document.getElementById('mic-btn').classList.add('recording');
-                        document.getElementById('mic-btn').innerText = '⏹';
-                    } catch(e) {
-                        addChatMessage('خطا در شروع ضبط: ' + e.message, 'system');
-                    }
+                try {
+                    addChatMessage("⏳ درخواست روشن کردن میکروفون ارسال شد...", 'system');
+                    recognition.start();
+                } catch(e) {
+                    addChatMessage('❌ خطای جاوا اسکریپت در شروع: ' + e.message + ' (نام: ' + e.name + ')', 'system');
                 }
             }
         }
