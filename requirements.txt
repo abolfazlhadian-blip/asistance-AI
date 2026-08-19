@@ -3,3 +3,4 @@ requests
 gtts
 SpeechRecognition
 pydub
+imageio-ffmpeg
