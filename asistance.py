@@ -39,6 +39,8 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>دستیار هوشمند من</title>
     <link rel="stylesheet" href="https://unpkg.com/persian-datepicker@latest/dist/css/persian-datepicker.min.css"/>
+    <!-- Vazirmatn Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #f8fafc; --card-bg: #ffffff; --primary: #6366f1; --primary-dark: #4f46e5;
@@ -198,6 +200,9 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <!-- Alarm Audio Element -->
+    <audio id="alarm-audio" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+
     <nav class="bottom-nav">
         <button class="nav-btn active" onclick="switchTab('chat-section', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>چت</button>
         <button class="nav-btn" onclick="switchTab('tasks', this)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>کارها</button>
@@ -215,10 +220,12 @@ HTML_TEMPLATE = """
         let mediaRecorder;
         let audioChunks = [];
         let isRecording = false;
+        let notifiedTasks = new Set();
         
         function loadTheme() { const theme = localStorage.getItem('theme') || 'light'; document.body.setAttribute('data-theme', theme); document.getElementById('theme-btn').innerText = theme === 'dark' ? '🌙' : '☀️'; }
         function toggleTheme() { const c = document.body.getAttribute('data-theme'); const n = c === 'dark' ? 'light' : 'dark'; document.body.setAttribute('data-theme', n); localStorage.setItem('theme', n); document.getElementById('theme-btn').innerText = n === 'dark' ? '🌙' : '☀️'; }
 
+        // --- Text To Speech (Google TTS) ---
         async function speakText(text) {
             if (currentAudio) currentAudio.pause();
             try {
@@ -230,6 +237,42 @@ HTML_TEMPLATE = """
                 currentAudio.play();
             } catch(e) { console.error("Audio play failed:", e); }
         }
+
+        // --- Notification & Alarm System ---
+        function requestNotificationPermission() {
+            if ('Notification' in window && Notification.permission !== 'granted') {
+                Notification.requestPermission();
+            }
+        }
+
+        function checkAlarms() {
+            const now = new Date();
+            appData.tasks.forEach(task => {
+                if (task.done || !task.due || notifiedTasks.has(task.id)) return;
+                
+                const dueDate = new Date(task.due);
+                if (dueDate.getTime() <= now.getTime()) {
+                    notifiedTasks.add(task.id);
+                    triggerAlarm(task.title);
+                }
+            });
+        }
+
+        function triggerAlarm(title) {
+            const alarmAudio = document.getElementById('alarm-audio');
+            alarmAudio.play().catch(e => console.error("Alarm play failed", e));
+            
+            addChatMessage("⏰ یادآوری: زمان انجام کار فرا رسید: " + title, 'system');
+            
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification("⏰ یادآوری کار", { body: title });
+            } else {
+                alert("⏰ یادآوری کار: " + title);
+            }
+        }
+
+        // Check alarms every 15 seconds
+        setInterval(checkAlarms, 15000);
 
         document.getElementById('image-upload').addEventListener('change', function(event) {
             const file = event.target.files[0];
@@ -275,7 +318,7 @@ HTML_TEMPLATE = """
             btn.classList.add('active');
         }
 
-        // --- iOS Compatible MediaRecorder Logic ---
+        // --- Advanced Audio Recording (Auto-detect MIME type) ---
         async function toggleMic() {
             const micBtn = document.getElementById('mic-btn');
             
@@ -288,7 +331,17 @@ HTML_TEMPLATE = """
             } else {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
+                    
+                    // Find supported mime type
+                    let mimeType = 'audio/webm';
+                    if (!MediaRecorder.isTypeSupported(mimeType)) {
+                        mimeType = 'audio/mp4';
+                        if (!MediaRecorder.isTypeSupported(mimeType)) {
+                            mimeType = ''; // Default
+                        }
+                    }
+                    
+                    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType: mimeType } : undefined);
                     audioChunks = [];
                     
                     mediaRecorder.ondataavailable = event => {
@@ -296,23 +349,23 @@ HTML_TEMPLATE = """
                     };
                     
                     mediaRecorder.onstop = async () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/mp4' });
+                        const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
                         const formData = new FormData();
-                        formData.append('audio', audioBlob, 'voice.mp4');
+                        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                        formData.append('audio', audioBlob, `voice.${ext}`);
                         
                         try {
                             const res = await fetch('/api/stt', { method: 'POST', body: formData });
                             const data = await res.json();
-                            if (data.text) {
+                            if (data.text && data.text.trim().length > 0) {
                                 document.getElementById('user-input').value = data.text;
                                 addChatMessage("📝 متن تبدیل شده آماده ارسال است.", 'system');
-                                // Auto-send after transcription
                                 sendToAI();
                             } else {
-                                addChatMessage("❌ صدایی شنیده نشد.", 'system');
+                                addChatMessage("❌ صدایی شنیده نشد. خطا: " + (data.error || "نامشخص"), 'system');
                             }
                         } catch (e) {
-                            addChatMessage("❌ خطا در تبدیل صدا به متن.", 'system');
+                            addChatMessage("❌ خطا در ارتباط با سرور تبدیل صدا.", 'system');
                         }
                     };
                     
@@ -427,7 +480,9 @@ HTML_TEMPLATE = """
             document.getElementById('quick-balance').innerText = formatNumber(income - expense);
         }
 
+        // Init
         loadTheme();
+        requestNotificationPermission();
         fetchAppData();
     </script>
 </body>
@@ -469,7 +524,8 @@ def stt():
     
     try:
         response = requests.post(STT_URL, headers=headers, files=files, data=data)
-        response.raise_for_status()
+        if response.status_code != 200:
+            return jsonify({"error": f"STT API Error: {response.text}"}), 500
         return jsonify({"text": response.json().get('text', '')})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
