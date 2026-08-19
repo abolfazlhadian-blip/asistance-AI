@@ -13,6 +13,7 @@ app = Flask(__name__)
 # --- Configuration ---
 DATA_FILE = 'data.json'
 API_URL = 'https://router.bynara.id/v1/chat/completions'
+STT_URL = 'https://router.bynara.id/v1/audio/transcriptions'
 API_KEY = 'sk-nry-tZQJP4JySkZdr-4ZpIr20-KJykh6w7fWasPIzMAK36I'
 
 # --- Data Management ---
@@ -211,7 +212,8 @@ HTML_TEMPLATE = """
         let appData = { tasks: [], transactions: [] };
         let currentAudio = null;
         let uploadedImage = null;
-        let recognition = null; 
+        let mediaRecorder;
+        let audioChunks = [];
         let isRecording = false;
         
         function loadTheme() { const theme = localStorage.getItem('theme') || 'light'; document.body.setAttribute('data-theme', theme); document.getElementById('theme-btn').innerText = theme === 'dark' ? '🌙' : '☀️'; }
@@ -273,69 +275,55 @@ HTML_TEMPLATE = """
             btn.classList.add('active');
         }
 
-        // --- Detailed Debug Microphone Logic ---
-        function setupMic() {
-            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (SR) {
-                addChatMessage("ℹ️ سیستم تشخیص گفتار در مرورگر پشتیبانی می‌شود.", 'system');
-                recognition = new SR(); 
-                recognition.lang = 'fa-IR'; 
-                recognition.interimResults = true; 
-                recognition.continuous = false;
-                
-                recognition.onstart = () => {
-                    addChatMessage("🎙 میکروفون روشن شد. حالا حرف بزنید...", 'system');
-                    isRecording = true;
-                    document.getElementById('mic-btn').classList.add('recording');
-                    document.getElementById('mic-btn').innerText = '⏹';
-                };
-                
-                recognition.onresult = (event) => { 
-                    let t = ''; 
-                    for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript; 
-                    document.getElementById('user-input').value = t; 
-                };
-                
-                recognition.onend = () => { 
-                    addChatMessage("⏹ ضبط صدا پایان یافت.", 'system');
-                    isRecording = false; 
-                    document.getElementById('mic-btn').classList.remove('recording'); 
-                    document.getElementById('mic-btn').innerText = '🎤'; 
-                    if(document.getElementById('user-input').value.trim().length > 0) sendToAI(); 
-                };
-                
-                recognition.onerror = (event) => {
-                    let errMsg = '❌ خطای میکروفون: ' + event.error;
-                    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                        errMsg = '🚫 دسترسی به میکروفون در مرورگر رد شد.';
-                    } else if (event.error === 'no-speech') {
-                        errMsg = '🔇 صدایی شنیده نشد. لطفاً دوباره تلاش کنید.';
-                    } else if (event.error === 'audio-capture') {
-                        errMsg = '🎤 میکروفون فیزیکی دستگاه یافت نشد.';
-                    }
-                    addChatMessage(errMsg, 'system');
-                    isRecording = false; 
-                    document.getElementById('mic-btn').classList.remove('recording'); 
-                    document.getElementById('mic-btn').innerText = '🎤';
-                };
-            } else { 
-                addChatMessage('❌ مرورگر شما از تشخیص گفتار پشتیبانی نمی‌کند.', 'system'); 
-            }
-        }
-        
-        function toggleMic() {
-            if (!recognition) setupMic(); 
-            if (!recognition) return;
-
+        // --- iOS Compatible MediaRecorder Logic ---
+        async function toggleMic() {
+            const micBtn = document.getElementById('mic-btn');
+            
             if (isRecording) {
-                recognition.stop();
+                mediaRecorder.stop();
+                micBtn.classList.remove('recording');
+                micBtn.innerText = '🎤';
+                isRecording = false;
+                addChatMessage("⏳ در حال پردازش صدا...", 'system');
             } else {
-                document.getElementById('user-input').value = '';
                 try {
-                    addChatMessage("⏳ درخواست روشن کردن میکروفون ارسال شد...", 'system');
-                    recognition.start();
-                } catch(e) {
-                    addChatMessage('❌ خطای جاوا اسکریپت در شروع: ' + e.message + ' (نام: ' + e.name + ')', 'system');
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = event => {
+                        if (event.data.size > 0) audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/mp4' });
+                        const formData = new FormData();
+                        formData.append('audio', audioBlob, 'voice.mp4');
+                        
+                        try {
+                            const res = await fetch('/api/stt', { method: 'POST', body: formData });
+                            const data = await res.json();
+                            if (data.text) {
+                                document.getElementById('user-input').value = data.text;
+                                addChatMessage("📝 متن تبدیل شده آماده ارسال است.", 'system');
+                                // Auto-send after transcription
+                                sendToAI();
+                            } else {
+                                addChatMessage("❌ صدایی شنیده نشد.", 'system');
+                            }
+                        } catch (e) {
+                            addChatMessage("❌ خطا در تبدیل صدا به متن.", 'system');
+                        }
+                    };
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('recording');
+                    micBtn.innerText = '⏹';
+                    addChatMessage("🎙 در حال ضبط... دوباره دکمه را بزنید تا متوقف شود.", 'system');
+                    
+                } catch (err) {
+                    addChatMessage('🚫 دسترسی به میکروفون رد شد: ' + err.message, 'system');
                 }
             }
         }
@@ -468,6 +456,23 @@ def tts():
         return Response(mp3_fp, mimetype='audio/mpeg')
     except Exception as e:
         return Response("", status=500)
+
+@app.route('/api/stt', methods=['POST'])
+def stt():
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file"}), 400
+        
+    audio_file = request.files['audio']
+    files = {'file': (audio_file.filename, audio_file.read(), audio_file.mimetype)}
+    data = {'model': 'whisper-1'}
+    headers = {'Authorization': f'Bearer {API_KEY}'}
+    
+    try:
+        response = requests.post(STT_URL, headers=headers, files=files, data=data)
+        response.raise_for_status()
+        return jsonify({"text": response.json().get('text', '')})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/manual', methods=['POST'])
 def manual_op():
