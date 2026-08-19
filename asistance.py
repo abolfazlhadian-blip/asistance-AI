@@ -9,6 +9,10 @@ from urllib.parse import quote
 from gtts import gTTS
 import speech_recognition as sr
 from pydub import AudioSegment
+import imageio_ffmpeg
+
+# Configure pydub to use the packaged ffmpeg
+AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
 app = Flask(__name__)
 
@@ -522,7 +526,7 @@ def stt():
     audio_file.save(temp_path)
     
     try:
-        # Convert to WAV using pydub
+        # Convert to WAV using pydub and imageio_ffmpeg
         audio = AudioSegment.from_file(temp_path)
         wav_path = temp_path.rsplit('.', 1)[0] + '.wav'
         audio.export(wav_path, format='wav')
