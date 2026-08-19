@@ -7,13 +7,14 @@ from flask import Flask, request, jsonify, render_template_string, Response
 import requests
 from urllib.parse import quote
 from gtts import gTTS
+import speech_recognition as sr
+from pydub import AudioSegment
 
 app = Flask(__name__)
 
 # --- Configuration ---
 DATA_FILE = 'data.json'
 API_URL = 'https://router.bynara.id/v1/chat/completions'
-STT_URL = 'https://router.bynara.id/v1/audio/transcriptions'
 API_KEY = 'sk-nry-tZQJP4JySkZdr-4ZpIr20-KJykh6w7fWasPIzMAK36I'
 
 # --- Data Management ---
@@ -318,7 +319,7 @@ HTML_TEMPLATE = """
             btn.classList.add('active');
         }
 
-        // --- Advanced Audio Recording (Auto-detect MIME type) ---
+        // --- Advanced Audio Recording ---
         async function toggleMic() {
             const micBtn = document.getElementById('mic-btn');
             
@@ -332,7 +333,6 @@ HTML_TEMPLATE = """
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     
-                    // Find supported mime type
                     let mimeType = 'audio/webm';
                     if (!MediaRecorder.isTypeSupported(mimeType)) {
                         mimeType = 'audio/mp4';
@@ -518,17 +518,27 @@ def stt():
         return jsonify({"error": "No audio file"}), 400
         
     audio_file = request.files['audio']
-    files = {'file': (audio_file.filename, audio_file.read(), audio_file.mimetype)}
-    data = {'model': 'whisper-1'}
-    headers = {'Authorization': f'Bearer {API_KEY}'}
+    temp_path = f"temp_{audio_file.filename}"
+    audio_file.save(temp_path)
     
     try:
-        response = requests.post(STT_URL, headers=headers, files=files, data=data)
-        if response.status_code != 200:
-            return jsonify({"error": f"STT API Error: {response.text}"}), 500
-        return jsonify({"text": response.json().get('text', '')})
+        # Convert to WAV using pydub
+        audio = AudioSegment.from_file(temp_path)
+        wav_path = temp_path.rsplit('.', 1)[0] + '.wav'
+        audio.export(wav_path, format='wav')
+        
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="fa-IR")
+            return jsonify({"text": text})
+    except sr.UnknownValueError:
+        return jsonify({"error": "صدایی شنیده نشد"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if os.path.exists(temp_path): os.remove(temp_path)
+        if 'wav_path' in locals() and os.path.exists(wav_path): os.remove(wav_path)
 
 @app.route('/api/manual', methods=['POST'])
 def manual_op():
