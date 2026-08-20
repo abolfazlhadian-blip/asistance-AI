@@ -8,13 +8,7 @@ from flask import Flask, request, jsonify, render_template_string, Response, ses
 import requests
 from urllib.parse import quote
 from gtts import gTTS
-import speech_recognition as sr
-from pydub import AudioSegment
-import imageio_ffmpeg
 from werkzeug.security import generate_password_hash, check_password_hash
-
-# Configure pydub to use the packaged ffmpeg
-AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-key-12345')
@@ -258,8 +252,6 @@ HTML_TEMPLATE = """
                     <input type="password" id="new-pass" placeholder="رمز عبور جدید">
                     <button class="btn" onclick="changePassword()">تغییر رمز</button>
                 </div>
-                
-                <!-- Admin Panel (Only visible for admin) -->
                 <div class="card" id="admin-panel" style="display: none;">
                     <h3>👑 مدیریت کاربران</h3>
                     <div id="user-list"></div>
@@ -283,7 +275,7 @@ HTML_TEMPLATE = """
 
     <script>
         let appData = { tasks: [], transactions: [], chat_logs: {} };
-        let currentAudio = null, uploadedImage = null, mediaRecorder, audioChunks = [], isRecording = false;
+        let currentAudio = null, uploadedImage = null, recognition = null, isRecording = false;
         let notifiedTasks = new Set();
         
         function loadTheme() { const theme = localStorage.getItem('theme') || 'light'; document.body.setAttribute('data-theme', theme); document.getElementById('theme-btn').innerText = theme === 'dark' ? '🌙' : '☀️'; }
@@ -328,7 +320,6 @@ HTML_TEMPLATE = """
 
         async function logout() { await fetch('/api/logout'); checkAuth(); }
 
-        // Settings Logic
         async function changePassword() {
             const oldPass = document.getElementById('old-pass').value;
             const newPass = document.getElementById('new-pass').value;
@@ -422,27 +413,52 @@ HTML_TEMPLATE = """
             btn.classList.add('active');
         }
 
-        async function toggleMic() {
-            const micBtn = document.getElementById('mic-btn');
-            if (isRecording) {
-                mediaRecorder.stop(); micBtn.classList.remove('recording'); micBtn.innerText = '🎤'; isRecording = false; addChatMessage("⏳ در حال پردازش صدا...", 'system');
-            } else {
+        // --- Live Speech Recognition ---
+        function setupMic() {
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SR) {
+                recognition = new SR(); 
+                recognition.lang = 'fa-IR'; 
+                recognition.interimResults = true; 
+                recognition.continuous = false;
+                recognition.onresult = (event) => { 
+                    let t = ''; 
+                    for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript; 
+                    document.getElementById('user-input').value = t; 
+                };
+                recognition.onend = () => { 
+                    isRecording = false; 
+                    document.getElementById('mic-btn').classList.remove('recording'); 
+                    document.getElementById('mic-btn').innerText = '🎤'; 
+                    if(document.getElementById('user-input').value.trim().length > 0) sendToAI(); 
+                };
+                recognition.onerror = (event) => {
+                    let errMsg = '❌ خطای میکروفون: ' + event.error;
+                    if (event.error === 'not-allowed') errMsg = '🚫 دسترسی به میکروفون در مرورگر رد شد.';
+                    addChatMessage(errMsg, 'system');
+                    isRecording = false; 
+                    document.getElementById('mic-btn').classList.remove('recording'); 
+                    document.getElementById('mic-btn').innerText = '🎤';
+                };
+            } else { 
+                addChatMessage('❌ مرورگر شما از تشخیص گفتار پشتیبانی نمی‌کند.', 'system'); 
+            }
+        }
+        
+        function toggleMic() {
+            if (!recognition) setupMic(); 
+            if (!recognition) return;
+            if (isRecording) recognition.stop();
+            else {
+                document.getElementById('user-input').value = '';
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    let mimeType = 'audio/webm'; if (!MediaRecorder.isTypeSupported(mimeType)) { mimeType = 'audio/mp4'; if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = ''; }
-                    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType: mimeType } : undefined); audioChunks = [];
-                    mediaRecorder.ondataavailable = event => { if (event.data.size > 0) audioChunks.push(event.data); };
-                    mediaRecorder.onstop = async () => {
-                        const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
-                        const formData = new FormData(); formData.append('audio', audioBlob, `voice.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`);
-                        try {
-                            const res = await fetch('/api/stt', { method: 'POST', body: formData }); const data = await res.json();
-                            if (data.text && data.text.trim().length > 0) { document.getElementById('user-input').value = data.text; sendToAI(); }
-                            else { addChatMessage("❌ صدایی شنیده نشد.", 'system'); }
-                        } catch (e) { addChatMessage("❌ خطا در تبدیل صدا.", 'system'); }
-                    };
-                    mediaRecorder.start(); isRecording = true; micBtn.classList.add('recording'); micBtn.innerText = '⏹';
-                } catch (err) { addChatMessage('🚫 دسترسی میکروفون رد شد.', 'system'); }
+                    recognition.start();
+                    isRecording = true;
+                    document.getElementById('mic-btn').classList.add('recording');
+                    document.getElementById('mic-btn').innerText = '⏹';
+                } catch(e) {
+                    addChatMessage('خطا در شروع ضبط: ' + e.message, 'system');
+                }
             }
         }
 
@@ -468,6 +484,7 @@ HTML_TEMPLATE = """
                 const speakBtn = document.createElement('span'); speakBtn.className = 'speaker-icon'; speakBtn.innerHTML = '🔊'; speakBtn.onclick = () => speakText(text);
                 const textSpan = document.createElement('span'); textSpan.innerText = text;
                 msgDiv.appendChild(speakBtn); msgDiv.appendChild(textSpan);
+                speakText(text);
             } else { msgDiv.innerText = text; }
             chatDisplay.appendChild(msgDiv); chatDisplay.scrollTop = chatDisplay.scrollHeight;
         }
@@ -642,34 +659,6 @@ def tts():
         return Response(mp3_fp, mimetype='audio/mpeg')
     except Exception as e:
         return Response("", status=500)
-
-@app.route('/api/stt', methods=['POST'])
-def stt():
-    user_id = get_current_user_id()
-    if not user_id: return jsonify({"error": "Unauthorized"}), 401
-    if 'audio' not in request.files: return jsonify({"error": "No audio file"}), 400
-        
-    audio_file = request.files['audio']
-    temp_path = f"temp_{audio_file.filename}"
-    audio_file.save(temp_path)
-    
-    try:
-        audio = AudioSegment.from_file(temp_path)
-        wav_path = temp_path.rsplit('.', 1)[0] + '.wav'
-        audio.export(wav_path, format='wav')
-        
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data, language="fa-IR")
-            return jsonify({"text": text})
-    except sr.UnknownValueError:
-        return jsonify({"error": "صدایی شنیده نشد"}), 400
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if os.path.exists(temp_path): os.remove(temp_path)
-        if 'wav_path' in locals() and os.path.exists(wav_path): os.remove(wav_path)
 
 @app.route('/api/manual', methods=['POST'])
 def manual_op():
